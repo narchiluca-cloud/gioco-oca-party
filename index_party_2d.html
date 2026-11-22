@@ -1,0 +1,1619 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Il Nobile Gioco dell'Oca — Edizione Goliardica</title>
+  
+  <!-- Tipografia d'Autore: Fraunces (serif ottico d'epoca), Cinzel (incisione classica), Plus Jakarta Sans (UI moderna e pulita) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;0,9..144,900;1,9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Canvas Confetti & QRCode Generator & Socket.io (con fallback) -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <style>
+    /* ==========================================================================
+       DESIGN SYSTEM: ARTIGIANALE, CONFORTEVOLE, DA TAVOLA REALE.
+       Zero gradienti fluo/cyberpunk. Cromie ispirate a taverne storiche, cuoio,
+       carta pergamenata, bronzo e profondità notturna in blu oltremare.
+       ========================================================================== */
+    
+    :root[data-theme="light"] {
+      /* Giorno: Carta a mano, salvia boschivo, cuoio toscano, accenti ottone */
+      --bg-base: #f7f4ed;
+      --bg-surface: #efe8db;
+      --bg-card: #ffffff;
+      --bg-card-subtle: #fbf9f4;
+      
+      --border-subtle: #dcd3c1;
+      --border-bold: #8e582e;
+      --border-ornament: #c89547;
+
+      --text-main: #241d15;
+      --text-secondary: #5e5241;
+      --text-muted: #8a7c68;
+
+      --accent-green: #29563d;
+      --accent-green-soft: #e2ede5;
+      --accent-brown: #8a4a22;
+      --accent-brown-soft: #f4e8dc;
+      --accent-gold: #c28827;
+      --accent-gold-soft: #fbf2df;
+      --accent-red: #9e2a2b;
+
+      --track-base: #e6ddcb;
+      --track-border: #baa88f;
+      --tile-bg: #fffdf9;
+      --tile-border: #a99479;
+      --tile-text: #221b13;
+
+      --shadow-soft: 0 4px 16px rgba(45, 34, 20, 0.06);
+      --shadow-elevated: 0 12px 36px rgba(45, 34, 20, 0.12);
+      --shadow-tactile: 0 4px 0 #733c17;
+    }
+
+    :root[data-theme="dark"] {
+      /* Notte: Blu Oltremare profondo da pub serale, verde bosco cupo, cuoio ambrato e oro antico */
+      --bg-base: #06111f;          /* Oltremare scurissimo notturno */
+      --bg-surface: #0c1a2d;       /* Oltremare intermedio */
+      --bg-card: #12243d;          /* Tessere e schede */
+      --bg-card-subtle: #172d4b;
+
+      --border-subtle: #243b59;
+      --border-bold: #a86c38;      /* Cuoio caldo a contrasto */
+      --border-ornament: #d99f3d;
+
+      --text-main: #f2f6fa;
+      --text-secondary: #9cb2c9;
+      --text-muted: #6b849e;
+
+      --accent-green: #37825b;
+      --accent-green-soft: #123322;
+      --accent-brown: #ad6d39;
+      --accent-brown-soft: #382110;
+      --accent-gold: #e0a33a;
+      --accent-gold-soft: #33240f;
+      --accent-red: #c93b3b;
+
+      --track-base: #0e2036;
+      --track-border: #2c496c;
+      --tile-bg: #152a45;
+      --tile-border: #4d6f96;
+      --tile-text: #f0f5fa;
+
+      --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.45);
+      --shadow-elevated: 0 16px 44px rgba(0, 0, 0, 0.65);
+      --shadow-tactile: 0 4px 0 #6e401b;
+    }
+
+    /* Reset & Tipografia base */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: 'Plus+Jakarta+Sans', -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      touch-action: manipulation;
+    }
+
+    h1, h2, h3, .font-display {
+      font-family: 'Fraunces', Georgia, serif;
+      letter-spacing: -0.015em;
+    }
+
+    .font-engraved {
+      font-family: 'Cinzel', serif;
+      letter-spacing: 0.08em;
+    }
+
+    /* BARRA SUPERIORE */
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 10px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-shield {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background: var(--accent-gold);
+      color: #1a1208;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      font-weight: 900;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--text-main);
+    }
+
+    .brand-tag {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-brown);
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pill-btn:hover {
+      border-color: var(--border-bold);
+    }
+
+    /* CONTENITORE PRINCIPALE ADATTIVO (Mobile / Desktop) */
+    main {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+    }
+
+    /* SCHEDA LATERALE COMANDI SMARTPHONE */
+    .control-deck {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .deck-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: var(--shadow-soft);
+      position: relative;
+    }
+
+    /* DADO TATTILMENTE PERFETTO */
+    .turn-status-banner {
+      background: var(--accent-gold-soft);
+      border: 1px solid var(--accent-gold);
+      border-radius: 12px;
+      padding: 8px 12px;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    .turn-label-micro {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 800;
+      color: var(--accent-brown);
+    }
+
+    .turn-current-player {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-top: 2px;
+    }
+
+    .dice-action-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+    }
+
+    .tactile-dice {
+      width: 82px;
+      height: 82px;
+      background: #ffffff;
+      color: #1a1a1a;
+      border: 3px solid var(--border-bold);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3.2rem;
+      box-shadow: var(--shadow-tactile), 0 8px 18px rgba(0,0,0,0.25);
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 14px;
+      transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.1s;
+    }
+    .tactile-dice:active {
+      transform: translateY(4px);
+      box-shadow: 0 0 0 #733c17, 0 2px 6px rgba(0,0,0,0.2);
+    }
+
+    .tactile-btn {
+      background: var(--accent-brown);
+      color: #ffffff;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-weight: 800;
+      font-size: 1rem;
+      width: 100%;
+      cursor: pointer;
+      box-shadow: var(--shadow-tactile);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .tactile-btn:active {
+      transform: translateY(4px);
+      box-shadow: 0 0 0 transparent;
+    }
+    .tactile-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* LISTA PARTECIPANTI */
+    .party-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .player-entry {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: var(--bg-surface);
+      border: 1px solid transparent;
+      margin-bottom: 6px;
+    }
+
+    .player-entry.is-turn {
+      border-color: var(--accent-gold);
+      background: var(--accent-gold-soft);
+      box-shadow: 0 0 0 1px var(--accent-gold);
+    }
+
+    .token-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 0.8rem;
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }
+
+    /* AREA TABELLONE A FORMA ELLITTICA VERA */
+    .board-stage {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 26px;
+      padding: 20px;
+      box-shadow: var(--shadow-elevated);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    .board-stage-header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+      padding: 0 6px;
+    }
+
+    .svg-canvas {
+      width: 100%;
+      max-width: 960px;
+      height: auto;
+      max-height: 720px;
+    }
+
+    .svg-cell {
+      cursor: pointer;
+    }
+    .svg-cell rect {
+      transition: stroke 0.2s, stroke-width 0.2s, transform 0.2s;
+    }
+    .svg-cell:hover rect {
+      stroke: var(--accent-gold);
+      stroke-width: 2.8px;
+    }
+
+    /* MODAL AUTENTICAZIONE ADMIN & ROOM CREATOR */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 10, 18, 0.82);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+    }
+    .modal-overlay.hidden {
+      display: none;
+    }
+
+    .parchment-modal {
+      background: var(--bg-card);
+      border: 2px solid var(--border-bold);
+      border-radius: 22px;
+      max-width: 480px;
+      width: 100%;
+      padding: 26px;
+      box-shadow: var(--shadow-elevated);
+      text-align: center;
+      animation: modalSlide 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalSlide {
+      from { transform: translateY(12px) scale(0.96); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .modal-badge {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 10px;
+      background: var(--accent-brown-soft);
+      color: var(--accent-brown);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      color: var(--text-main);
+      margin-bottom: 12px;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-input:focus {
+      border-color: var(--accent-gold);
+    }
+
+    /* PANNELLO DI REGIA ADMIN (GOD MODE) */
+    .admin-bar-bottom {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-card);
+      border: 2px solid var(--accent-gold);
+      border-radius: 18px;
+      padding: 8px 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 45;
+    }
+
+    /* TOGGLE VISTA MOBILE (MINIMAP / DADO) */
+    .mobile-tab-switch {
+      display: none;
+      gap: 6px;
+      margin-bottom: 12px;
+      width: 100%;
+    }
+    @media (max-width: 980px) {
+      .mobile-tab-switch {
+        display: flex;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 9px;
+        border-radius: 10px;
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-main);
+        font-weight: 700;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .tab-btn.active {
+        background: var(--accent-brown);
+        color: white;
+        border-color: var(--accent-brown);
+      }
+      .hide-mobile {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- BARRA SUPERIORE -->
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-shield font-engraved">🪿</div>
+      <div>
+        <div class="brand-title font-display">Il Nobile Gioco dell'Oca</div>
+        <div class="brand-tag">Goliardia & Penitenze Tra Amici</div>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <!-- Stanza ID badge se collegati -->
+      <button id="btn-show-room-qr" class="pill-btn" style="border-color: var(--accent-gold); color: var(--accent-gold); display: none;">
+        <span>📱 Stanza: <strong id="current-room-label">OCA-01</strong></span>
+      </button>
+
+      <!-- Toggle Palette: Chiaro (Beige/Verde/Marrone) o Notte (Oltremare/Verde/Cuoio) -->
+      <button id="btn-theme-toggle" class="pill-btn" title="Cambia Palette">
+        <span id="theme-icon">🌙</span>
+        <span id="theme-label" class="hide-mobile">Notte (Oltremare)</span>
+      </button>
+
+      <button id="btn-sound-toggle" class="pill-btn">
+        <span id="sound-icon">🔊</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- CONTENUTO PRINCIPALE -->
+  <main>
+
+    <!-- SELETTORE PER SMARTPHONE: CONTROLLER VS TABELLONE -->
+    <div class="mobile-tab-switch">
+      <button id="tab-controller" class="tab-btn active">🎲 Il Mio Turno</button>
+      <button id="tab-board" class="tab-btn">🗺️ Tabellone Ellittico</button>
+    </div>
+
+    <!-- SEZIONE SINISTRA: CONTROLLI SMARTPHONE & TAVOLATA -->
+    <aside id="section-controller" class="control-deck">
+
+      <!-- BANNER TURNO & DADO TATTILISSIMO -->
+      <div class="deck-panel">
+        <div class="turn-status-banner">
+          <div class="turn-label-micro">Turno di Gioco</div>
+          <div id="display-turn-player" class="turn-current-player font-display">
+            In attesa della tavolata...
+          </div>
+        </div>
+
+        <div class="dice-action-zone">
+          <div id="tactile-dice-cube" class="tactile-dice" title="Tocca per lanciare">
+            🎲
+          </div>
+          
+          <button id="btn-tactile-roll" class="tactile-btn" disabled>
+            <span>Lancia il Dado</span> 🎲
+          </button>
+        </div>
+
+        <div style="font-size: 0.72rem; text-align: center; color: var(--text-muted); margin-top: 10px;">
+          Tocca il dado o premi la <strong>barra SPAZIO</strong>
+        </div>
+      </div>
+
+      <!-- SCHEDA PARTECIPANTI ALLA FESTA -->
+      <div class="deck-panel">
+        <div class="party-list-header">
+          <div style="font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-brown);">
+            Tavolata (<span id="total-players-count">0</span>)
+          </div>
+          <button id="btn-open-login" class="pill-btn" style="padding: 4px 8px; font-size: 0.72rem;">
+            + Aggiungi / Stanza
+          </button>
+        </div>
+
+        <div id="players-rack">
+          <!-- Popolato dinamicamente -->
+        </div>
+
+        <!-- LINK PER ENTRARE COME ADMIN SOTTO LA LISTA -->
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-subtle); text-align: center;">
+          <button id="btn-link-admin" style="background: none; border: none; font-size: 0.75rem; color: var(--accent-gold); font-weight: 700; cursor: pointer; text-decoration: underline;">
+            👑 Sei l'Host della Serata? Accedi come Admin
+          </button>
+        </div>
+      </div>
+
+      <!-- LEGENDA ELEGANTE A INCISIONE -->
+      <div class="deck-panel hide-mobile">
+        <div style="font-weight: 800; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-brown); margin-bottom: 10px;">
+          Legenda delle Caselle
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.72rem; color: var(--text-secondary);">
+          <div>🪿 <strong>Oca:</strong> Vola e ritira</div>
+          <div>🥃 <strong>Shot:</strong> Bevi secco</div>
+          <div>🤫 <strong>Verità:</strong> Segreto o bevi</div>
+          <div>🔥 <strong>Pegno:</strong> Sfida del gruppo</div>
+          <div>🌉 <strong>Ponte:</strong> Salta a #12</div>
+          <div>☠️ <strong>Resacone:</strong> Ritorno a #0</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- SEZIONE DESTRA: IL MERAVIGLIOSO TABELLONE ELLITTICO VETTORIALE -->
+    <section id="section-board" class="board-stage">
+      
+      <div class="board-stage-header">
+        <div>
+          <h2 class="font-display" style="font-size: 1.25rem; color: var(--text-main);">
+            Il Tracciato Ellittico a Spirale
+          </h2>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">
+            40 Caselle artigianali verso il Traguardo Sovrano (#40)
+          </span>
+        </div>
+        <div id="ticker-feed" style="font-size: 0.8rem; font-style: italic; color: var(--accent-brown); max-width: 320px; text-align: right;">
+          Benvenuti! Lancia il dado per iniziare la corsa.
+        </div>
+      </div>
+
+      <!-- SVG DEL TABELLONE ELLITTICO A SPIRALE -->
+      <svg id="svg-board-root" class="svg-canvas" viewBox="0 0 940 640">
+        <!-- Tracciati decorativi ellittici concentrici -->
+        <ellipse cx="470" cy="320" rx="425" ry="275" fill="none" stroke="var(--track-base)" stroke-width="52" stroke-linecap="round"/>
+        <ellipse cx="470" cy="320" rx="315" ry="195" fill="none" stroke="var(--track-base)" stroke-width="48" stroke-linecap="round"/>
+        <ellipse cx="470" cy="320" rx="195" ry="118" fill="none" stroke="var(--track-base)" stroke-width="42" stroke-linecap="round"/>
+
+        <!-- Bordo ornamentale interno ed esterno -->
+        <ellipse cx="470" cy="320" rx="452" ry="302" fill="none" stroke="var(--track-border)" stroke-width="1.5" stroke-dasharray="6,6"/>
+        <ellipse cx="470" cy="320" rx="398" ry="248" fill="none" stroke="var(--track-border)" stroke-width="1.5"/>
+
+        <!-- CASSOLLA 40: TRAGUARDO SOVRANO CENTRALE -->
+        <g id="center-goal-tile" class="svg-cell" style="cursor: pointer;">
+          <ellipse cx="470" cy="320" rx="88" ry="54" fill="var(--accent-gold)" stroke="var(--border-bold)" stroke-width="3"/>
+          <ellipse cx="470" cy="320" rx="80" ry="46" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.6"/>
+          <text x="470" y="315" text-anchor="middle" font-family="'Fraunces', serif" font-weight="900" font-size="14" fill="#17120a">👑 TRAGUARDO</text>
+          <text x="470" y="332" text-anchor="middle" font-family="'Cinzel', serif" font-weight="800" font-size="9" fill="#17120a">CASELLA #40</text>
+        </g>
+
+        <!-- Gruppo Tessere 0 - 39 -->
+        <g id="svg-tiles-group"></g>
+
+        <!-- Gruppo Pedine animate -->
+        <g id="svg-tokens-group"></g>
+      </svg>
+
+    </section>
+
+  </main>
+
+  <!-- MODAL: ENTRA COME GIOCATORE / CREA STANZA COME ADMIN -->
+  <div id="modal-lobby" class="modal-overlay hidden">
+    <div class="parchment-modal">
+      <div class="modal-badge font-engraved">Tavolata & Stanze</div>
+      <h3 class="font-display" style="font-size: 1.5rem; margin-bottom: 6px;" id="modal-lobby-title">Unisciti alla Partita</h3>
+      <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 18px;" id="modal-lobby-desc">
+        Giocate tutti insieme dai vostri smartphone in tempo reale!
+      </p>
+
+      <!-- VIEW 1: PRE-LOBBY (Inserisci il tuo nome prima che inizi la serata) -->
+      <div id="view-player-join">
+        <div id="box-step1-name">
+          <input type="text" id="input-player-name" class="form-input" placeholder="Il tuo nome (es. Marco)" maxlength="14">
+          <button id="btn-save-my-name" class="tactile-btn" style="margin-bottom: 12px;">
+            Salva il mio Nome 🍻
+          </button>
+        </div>
+
+        <!-- STATO DI ATTESA: Il nome è salvato, aspetta che l'Admin apra la stanza -->
+        <div id="box-step2-waiting" style="display: none; background: var(--bg-surface); border: 1px dashed var(--accent-gold); border-radius: 14px; padding: 16px; margin-bottom: 14px;">
+          <div style="font-size: 0.95rem; font-weight: 800; color: var(--accent-gold); margin-bottom: 4px;">
+            Ciao <span id="saved-player-name-display" style="color: var(--text-main);"></span>! 👋
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;">
+            In attesa che l'Admin crei la stanza. Non appena l'Admin ti dà il codice (o inquadri il suo QR Code), inseriscilo qui sotto:
+          </p>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-room-code" class="form-input" placeholder="PIN a 4 cifre (es. 4821)" maxlength="6" inputmode="numeric" style="margin-bottom: 0; text-align: center; font-size: 1.1rem; letter-spacing: 0.15em; font-weight: 800;">
+            <button id="btn-submit-join" class="tactile-btn" style="width: auto; padding: 0 16px;">
+              Entra! 🚀
+            </button>
+          </div>
+          <div style="margin-top: 10px; text-align: right;">
+            <button id="btn-change-my-name" style="background: none; border: none; font-size: 0.72rem; color: var(--text-muted); cursor: pointer; text-decoration: underline;">
+              Cambia nome
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-switch-to-admin-view" style="background: none; border: none; font-size: 0.78rem; color: var(--accent-gold); font-weight: 800; cursor: pointer; margin-top: 6px;">
+          👑 Sei l'Admin? Clicca qui per creare la stanza con Password
+        </button>
+      </div>
+
+      <!-- VIEW 2: ACCEDI COME ADMIN CON PASSWORD (Come richiesto!) -->
+      <div id="view-admin-login" style="display: none;">
+        <input type="password" id="input-admin-password" class="form-input" placeholder="Master Password Admin (default: oca123)">
+        <input type="text" id="input-admin-room-name" class="form-input" placeholder="Nome della Serata (es. Festa da Luca)">
+
+        <button id="btn-submit-admin" class="tactile-btn" style="background: var(--accent-green); margin-bottom: 12px;">
+          Crea Stanza & Apri Regia 👑
+        </button>
+
+        <button id="btn-back-to-player-view" style="background: none; border: none; font-size: 0.78rem; color: var(--text-muted); cursor: pointer;">
+          ← Torna all'accesso giocatore
+        </button>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <button id="btn-close-lobby" style="background: none; border: none; font-size: 0.75rem; color: var(--text-muted); text-decoration: underline; cursor: pointer;">
+          Gioca in modalità locale senza server
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: QR CODE PER FAR CONNETTERE TUTTI GLI AMICI -->
+  <div id="modal-qr" class="modal-overlay hidden">
+    <div class="parchment-modal">
+      <div class="modal-badge font-engraved">Inquadra & Gioca</div>
+      <h3 class="font-display" style="font-size: 1.4rem; margin-bottom: 4px;">Fai Scansionare agli Amici</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px;">
+        Inquadra con la fotocamera del telefono per entrare istantaneamente!
+      </p>
+
+      <div id="qrcode-container" style="display: flex; justify-content: center; margin: 12px 0;">
+        <canvas id="qr-canvas" style="border-radius: 14px; border: 3px solid var(--border-subtle);"></canvas>
+      </div>
+
+      <div style="font-size: 0.9rem; font-weight: 800; color: var(--accent-gold); margin-bottom: 16px;">
+        Codice Stanza: <span id="qr-room-code-display">OCA-01</span>
+      </div>
+
+      <button id="btn-close-qr" class="tactile-btn">
+        Chiudi & Torna al Gioco
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL SFIDA / PENITENZA ATTIVA -->
+  <div id="modal-challenge" class="modal-overlay hidden">
+    <div class="parchment-modal">
+      <div id="challenge-badge" class="modal-badge">SHOT</div>
+      <div id="challenge-icon" style="font-size: 3rem; margin: 6px 0;">🥃</div>
+      <h3 id="challenge-title" class="font-display" style="font-size: 1.45rem; margin-bottom: 4px;">Titolo Casella</h3>
+      <div id="challenge-player-acting" style="font-size: 0.85rem; font-weight: 800; color: var(--accent-gold); margin-bottom: 12px;">Tocca a Luca</div>
+
+      <div id="challenge-desc" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 16px; font-size: 0.95rem; line-height: 1.5; margin-bottom: 18px;">
+        Descrizione sfida...
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button id="btn-challenge-done" class="tactile-btn" style="flex: 2; background: var(--accent-green);">
+          Fatto / Bevuto! 🍻
+        </button>
+        <button id="btn-challenge-pass" class="tactile-btn" style="flex: 1; background: var(--accent-red); font-size: 0.85rem;">
+          Rifiuto (+2)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL VITTORIA -->
+  <div id="modal-victory" class="modal-overlay hidden">
+    <div class="parchment-modal" style="border-color: var(--accent-gold);">
+      <div style="font-size: 4rem; margin-bottom: 8px;">👑🍾🪿</div>
+      <h2 class="font-display" style="font-size: 1.8rem; color: var(--accent-gold); margin-bottom: 6px;">ABBIAMO IL RE DELLA SERATA!</h2>
+      <p style="font-size: 1rem; color: var(--text-main); margin-bottom: 14px;">
+        <strong id="winner-name-txt" style="font-size: 1.35rem; color: var(--accent-brown);">LUCA</strong> ha conquistato il Traguardo!
+      </p>
+      <div style="background: var(--accent-brown-soft); border: 1px solid var(--accent-gold); border-radius: 14px; padding: 14px; font-size: 0.9rem; color: var(--text-main); margin-bottom: 18px;">
+        🎉 <strong>Regola Finale:</strong> Tutti gli altri presenti finiscono il proprio bicchiere alla salute del vincitore!
+      </div>
+      <button id="btn-victory-restart" class="tactile-btn" style="background: var(--accent-gold); color: #1a1208;">
+        Inizia Nuova Partita 🔥
+      </button>
+    </div>
+  </div>
+
+  <!-- PANNELLO ADMIN FLUTTUANTE (GOD MODE - Attivo solo per l'Admin!) -->
+  <div id="admin-floating-bar" class="admin-bar-bottom" style="display: none;">
+    <span style="font-size: 0.75rem; font-weight: 800; color: var(--accent-gold);">👑 REGIA ADMIN:</span>
+    <button id="btn-god-cascade" class="pill-btn" style="background: #8b2525; color: white;">🌊 Tutti Bevono</button>
+    <button id="btn-god-reset" class="pill-btn" style="background: var(--bg-surface);">🔄 Reset Posizioni</button>
+    <button id="btn-god-custom-drop" class="pill-btn" style="background: var(--accent-brown); color: white;">⚡ Sfida Flash</button>
+  </div>
+
+  <!-- LOGICA JAVASCRIPT COMPLETA E ROBUSTA -->
+  <script>
+    /* ==========================================================================
+       1. DEFINIZIONE DELLE 40 CASELLE GOLIARDICHE
+       ========================================================================== */
+    const TILES = [
+      { id: 0, title: "Partenza", type: "start", icon: "🚀", desc: "Brindisi di gruppo per inaugurare il cammino goliardico!" },
+      { id: 1, title: "Sorseggio", type: "shot", icon: "🍺", desc: "Bevi 1 sorso del tuo drink per scaldare i motori." },
+      { id: 2, title: "L'Oca Vola!", type: "goose", icon: "🪿", desc: "Di Oca in Oca si vola! Avanza di nuovo del valore del dado e ritira subito!" },
+      { id: 3, title: "Confessione", type: "truth", icon: "🤫", desc: "Qual è la figura di m***a peggiore che hai fatto con una persona che ti piaceva? Rispondi o bevi 2 sorsi." },
+      { id: 4, title: "Distribuisci", type: "dare", icon: "🎯", desc: "Assegna 2 sorsi da bere a chi vuoi tu nel tavolo." },
+      { id: 5, title: "Screenshot", type: "dare", icon: "📱", desc: "Mostra l'ultimo screenshot salvato nella tua galleria, o fatti 1 shot liscio!" },
+      { id: 6, title: "Il Ponte", type: "bridge", icon: "🌉", desc: "Ponte festivo! Vola direttamente alla casella #12 e bevi 1 sorso per celebrare." },
+      { id: 7, title: "Non Ho Mai...", type: "rule", icon: "🙋‍♂️", desc: "Dì un 'Non ho mai...'. Chiunque al tavolo lo abbia fatto nella vita deve bere 1 sorso!" },
+      { id: 8, title: "Shot Secco", type: "shot", icon: "🥃", desc: "Bevi uno shot di Vodka o Tequila liscio. Se rifiuti, bevi 3 sorsi abbondanti!" },
+      { id: 9, title: "L'Oca delle 2", type: "goose", icon: "🪿", desc: "Di Oca in Oca! Vola avanti di tanti passi quanti il dado e tira ancora!" },
+      { id: 10, title: "La Locanda", type: "inn", icon: "🍻", desc: "Fermo al bancone! Bevi mezzo bicchiere per liberarti subito o salti il prossimo giro." },
+      { id: 11, title: "Like al Passato", type: "dare", icon: "📸", desc: "Metti mi piace al post di 2 anni fa del primo profilo su Instagram, o bevi 2 sorsi." },
+      { id: 12, title: "Legge del Re", type: "rule", icon: "👑", desc: "Imponi una regola al gruppo fino a fine partita (es. vietato usare nomi propri o toccarsi i capelli). Chi sgarra beve!" },
+      { id: 13, title: "Verità Calda", type: "truth", icon: "🔥", desc: "Con chi dei presenti andresti a letto o usciresti a cena? Se taci, scola 3 sorsi." },
+      { id: 14, title: "L'Oca Alata", type: "goose", icon: "🪿", desc: "L'Oca ti spinge! Avanza ancora del valore del lancio e ritira subito!" },
+      { id: 15, title: "Category Rush", type: "rule", icon: "⚡", desc: "Scegli un argomento (es. cocktail, scuse per non uscire). A giro veloce: chi esita o ripete beve 2 sorsi!" },
+      { id: 16, title: "Batteria Bassa", type: "dare", icon: "🔋", desc: "Controllate i telefoni: chi ha la percentuale più bassa beve 2 sorsi, la più alta ne assegna 2." },
+      { id: 17, title: "Compagno Drink", type: "rule", icon: "🥂", desc: "Nomina un gemello di bicchiere: per i prossimi 2 giri, quando bevi tu beve anche lui!" },
+      { id: 18, title: "L'Oca Spritz", type: "goose", icon: "🪿", desc: "Ancora l'Oca! Fai un brindisi generale prima di ritirare il dado!" },
+      { id: 19, title: "Il Pozzo", type: "well", icon: "🕳️", desc: "Caduto nel pozzo delle 4 del mattino! Rimani fermo finché non bevi 1 shot di riscatto." },
+      { id: 20, title: "Metà Strada!", type: "shot", icon: "🍸", desc: "Siamo al 50%! Tu e il giocatore alla tua sinistra fate uno shot insieme!" },
+      { id: 21, title: "Karaoke Flash", type: "dare", icon: "🎵", desc: "Metti Spotify in casuale: canta a squarciagola il ritornello della prima traccia o bevi 2 sorsi." },
+      { id: 22, title: "Gossip Segreto", type: "truth", icon: "🤫", desc: "Confessa l'aneddoto più borderline che non hai mai raccontato a tua madre, o bevi 3 sorsi." },
+      { id: 23, title: "L'Oca Veloce", type: "goose", icon: "🪿", desc: "Di Oca in Oca si stringe la spirale! Avanza e lancia nuovamente!" },
+      { id: 24, title: "Cascata!", type: "shot", icon: "🌊", desc: "Tutti iniziano a bere contemporaneamente. Nessuno può fermarsi finché non posa il bicchiere chi ha tirato il dado!" },
+      { id: 25, title: "Scambio Posto", type: "dare", icon: "🔄", desc: "Scambia la tua pedina con quella dell'ultimo giocatore in classifica! Se sei ultimo, avanzi di 3 caselle." },
+      { id: 26, title: "Vocale Famiglia", type: "dare", icon: "🎙️", desc: "Manda un vocale di 3 secondi dicendo 'Ho visto uno gnomo armato' a chi vuoi tu, o bevi 3 sorsi." },
+      { id: 27, title: "L'Oca d'Assalto", type: "goose", icon: "🪿", desc: "Vola avanti e ritira il dado! La vittoria è sempre più vicina." },
+      { id: 28, title: "Braccio di Ferro", type: "rule", icon: "💪", desc: "Sfida chi vuoi a braccio di ferro (o sasso-carta-forbice al meglio di 3). Chi perde beve 2 sorsi!" },
+      { id: 29, title: "Il Labirinto", type: "maze", icon: "🌀", desc: "Ti sei perso nei vicoli tornando a casa! Torni indietro alla casella #15 e bevi 1 sorso di disorientamento." },
+      { id: 30, title: "Doppio Shot", type: "shot", icon: "💀", desc: "Casella assassina! 1 shot secco o 3 sorsi abbondanti senza fare smorfie." },
+      { id: 31, title: "La Prigione", type: "jail", icon: "🔒", desc: "Fermo 1 turno salvo che un amico non beva 2 sorsi al posto tuo per scagionarti." },
+      { id: 32, title: "L'Oca d'Oro", type: "goose", icon: "🪿", desc: "Penultima oca! Vola avanti di quanto hai fatto e ritira!" },
+      { id: 33, title: "Ultime Ricerche", type: "truth", icon: "🔍", desc: "Leggi ad alta voce le ultime 3 cose cercate su Google o safari, oppure scola mezzo drink!" },
+      { id: 34, title: "Telefono Bandito", type: "rule", icon: "📵", desc: "Chi tocca il telefono nei prossimi 10 minuti deve bere 1 sorso ogni volta che viene beccato!" },
+      { id: 35, title: "Sguardo Fisso", type: "dare", icon: "💋", desc: "Fissa negli occhi chi hai di fronte per 15 secondi senza ridere. Chi ride beve 2 sorsi!" },
+      { id: 36, title: "L'Oca Finale", type: "goose", icon: "🪿", desc: "L'ultima Oca! Avanza ed occhio a non rimbalzare oltre il traguardo!" },
+      { id: 37, title: "Interrogatorio", type: "truth", icon: "💣", desc: "Tutto il gruppo concorda all'unanimità una singola domanda a cui DEVI rispondere sinceramente, o finisci il drink." },
+      { id: 38, title: "Il Resacone (6:00)", type: "skull", icon: "☠️", desc: "Sei crollato prima dell'alba! Torni strisciando alla PARTENZA (#0) e bevi 2 sorsi di rammarico!" },
+      { id: 39, title: "Penultimo Passo", type: "dare", icon: "🏋️", desc: "Fai 8 flessioni sul posto o bevi 2 sorsi. Ti serve il numero esatto per entrare al Traguardo!" },
+      { id: 40, title: "TRAGUARDO SOVRANO", type: "win", icon: "👑", desc: "CAMPIONE DELLA SERATA! Tutti gli altri finiscono il proprio bicchiere alla tua salute!" }
+    ];
+
+    /* ==========================================================================
+       2. MATEMATICA DEL PERCORSO ELLITTICO A SPIRALE
+       Calcolo coordinate precise (X, Y) lungo 3 anelli concentrici
+       ========================================================================== */
+    const TILE_COORDS = [];
+    const CX = 470, CY = 320;
+
+    // Anello 1 (Esterno): Caselle 0..18
+    const N1 = 19, RX1 = 415, RY1 = 265;
+    for (let i = 0; i < N1; i++) {
+      const angle = Math.PI * 0.94 + (i / (N1 - 1)) * (Math.PI * 1.94);
+      TILE_COORDS.push({ x: Math.round(CX + RX1 * Math.cos(angle)), y: Math.round(CY + RY1 * Math.sin(angle)) });
+    }
+
+    // Anello 2 (Intermedio): Caselle 19..31
+    const N2 = 13, RX2 = 305, RY2 = 185;
+    for (let i = 0; i < N2; i++) {
+      const angle = Math.PI * 0.98 + (i / (N2 - 1)) * (Math.PI * 1.92);
+      TILE_COORDS.push({ x: Math.round(CX + RX2 * Math.cos(angle)), y: Math.round(CY + RY2 * Math.sin(angle)) });
+    }
+
+    // Anello 3 (Interno): Caselle 32..39
+    const N3 = 8, RX3 = 192, RY3 = 110;
+    for (let i = 0; i < N3; i++) {
+      const angle = Math.PI * 1.05 + (i / (N3 - 1)) * (Math.PI * 1.86);
+      TILE_COORDS.push({ x: Math.round(CX + RX3 * Math.cos(angle)), y: Math.round(CY + RY3 * Math.sin(angle)) });
+    }
+
+    // Casella 40 (Centro esatto)
+    TILE_COORDS.push({ x: CX, y: CY });
+
+    /* ==========================================================================
+       3. GESTIONE TEMI & AUDIO SINTETIZZATO
+       ========================================================================== */
+    const PLAYER_PALETTE = [
+      { name: "Verde Bosco", color: "#29563d", text: "#ffffff" },
+      { name: "Marrone Cuoio", color: "#8a4a22", text: "#ffffff" },
+      { name: "Oltremare", color: "#19436d", text: "#ffffff" },
+      { name: "Oro Ambrato", color: "#c28827", text: "#ffffff" },
+      { name: "Rubino", color: "#872729", text: "#ffffff" },
+      { name: "Salvia", color: "#427a5d", text: "#ffffff" }
+    ];
+
+    let soundOn = true;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playBeep(freq, type = 'sine', duration = 0.08) {
+      if (!soundOn || !audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function triggerHaptic() {
+      if (navigator.vibrate) {
+        navigator.vibrate([25, 20, 40]);
+      }
+    }
+
+    // Toggle Palette Tema (Chiaro vs Notte)
+    const btnThemeToggle = document.getElementById('btn-theme-toggle');
+    const themeIcon = document.getElementById('theme-icon');
+    const themeLabel = document.getElementById('theme-label');
+
+    btnThemeToggle.addEventListener('click', () => {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const nextTheme = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', nextTheme);
+      themeIcon.innerText = isDark ? '☀️' : '🌙';
+      themeLabel.innerText = isDark ? 'Giorno (Beige/Verde)' : 'Notte (Oltremare)';
+      renderSvgBoard();
+    });
+
+    document.getElementById('btn-sound-toggle').onclick = () => {
+      soundOn = !soundOn;
+      document.getElementById('sound-icon').innerText = soundOn ? '🔊' : '🔇';
+    };
+
+    /* ==========================================================================
+       4. GESTIONE STATO LOCALE E MULTIPLAYER (WEBSOCKET / SOCKET.IO)
+       ========================================================================== */
+    let socket = null;
+    let currentRoomId = null;
+    let isAdmin = false;
+    let adminToken = null;
+    let localPlayerId = null;
+
+    let gameState = {
+      players: [],
+      currentTurnIndex: 0,
+      isRolling: false
+    };
+
+    // Connessione Socket.io automatica se il server è attivo
+    function initSocketConnection() {
+      if (typeof io !== 'undefined') {
+        try {
+          socket = io();
+
+          socket.on('connect', () => {
+            console.log('[SOCKET] Connesso al server Socket.io locale!');
+          });
+
+          socket.on('room_state_updated', (roomData) => {
+            gameState.players = roomData.players.map((p, idx) => ({
+              ...p,
+              color: PLAYER_PALETTE[idx % PLAYER_PALETTE.length]
+            }));
+            gameState.currentTurnIndex = roomData.currentTurnIndex;
+            updateUI();
+          });
+
+          socket.on('dice_rolled', (data) => {
+            animateDiceRoll(data.rollValue, () => {
+              const p = gameState.players.find(x => x.id === data.playerId);
+              if (p) {
+                p.position = data.newPosition;
+                renderTokens();
+                updateUI();
+                evaluateTileLanded(p, data.rollValue);
+              }
+            });
+          });
+
+          socket.on('admin_cascade_drink', (data) => {
+            alert(data.message);
+            playBeep(300, 'sawtooth', 0.5);
+          });
+
+          socket.on('admin_broadcast_alert', (msg) => {
+            alert(msg);
+          });
+        } catch(e) {
+          console.log('[SOCKET] Modalità locale (standalone)');
+        }
+      }
+    }
+
+    /* ==========================================================================
+       5. RENDERING GRAFICO DEL TABELLONE ELLITTICO
+       ========================================================================== */
+    const svgTilesGroup = document.getElementById('svg-tiles-group');
+    const svgTokensGroup = document.getElementById('svg-tokens-group');
+
+    function renderSvgBoard() {
+      svgTilesGroup.innerHTML = '';
+
+      for (let i = 0; i < 40; i++) {
+        const tile = TILES[i];
+        const pt = TILE_COORDS[i];
+
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("class", "svg-cell");
+        g.setAttribute("id", `cell-${i}`);
+        g.onclick = () => openPreviewModal(tile);
+
+        let strokeColor = "var(--tile-border)";
+        let strokeW = "1.5";
+        let fillColor = "var(--tile-bg)";
+
+        if (tile.type === 'goose') {
+          strokeColor = "var(--accent-gold)";
+          strokeW = "2.6";
+        } else if (tile.type === 'skull') {
+          strokeColor = "var(--accent-red)";
+        } else if (tile.type === 'bridge') {
+          strokeColor = "var(--accent-green)";
+        }
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", pt.x - 25);
+        rect.setAttribute("y", pt.y - 19);
+        rect.setAttribute("width", 50);
+        rect.setAttribute("height", 38);
+        rect.setAttribute("rx", 9);
+        rect.setAttribute("fill", fillColor);
+        rect.setAttribute("stroke", strokeColor);
+        rect.setAttribute("stroke-width", strokeW);
+
+        // Numero casella
+        const txtNum = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txtNum.setAttribute("x", pt.x - 18);
+        txtNum.setAttribute("y", pt.y - 5);
+        txtNum.setAttribute("font-family", "'Fraunces', serif");
+        txtNum.setAttribute("font-size", "11");
+        txtNum.setAttribute("font-weight", "700");
+        txtNum.setAttribute("fill", "var(--text-muted)");
+        txtNum.textContent = `#${tile.id}`;
+
+        // Icona
+        const txtIcon = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txtIcon.setAttribute("x", pt.x + 11);
+        txtIcon.setAttribute("y", pt.y - 5);
+        txtIcon.setAttribute("font-size", "11");
+        txtIcon.setAttribute("text-anchor", "middle");
+        txtIcon.textContent = tile.icon;
+
+        // Titolo casella
+        const txtTitle = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txtTitle.setAttribute("x", pt.x);
+        txtTitle.setAttribute("y", pt.y + 11);
+        txtTitle.setAttribute("font-family", "'Plus+Jakarta+Sans', sans-serif");
+        txtTitle.setAttribute("font-size", "7.8");
+        txtTitle.setAttribute("font-weight", "700");
+        txtTitle.setAttribute("text-anchor", "middle");
+        txtTitle.setAttribute("fill", "var(--tile-text)");
+        txtTitle.textContent = tile.title.length > 10 ? tile.title.substring(0, 9) + '…' : tile.title;
+
+        g.appendChild(rect);
+        g.appendChild(txtNum);
+        g.appendChild(txtIcon);
+        g.appendChild(txtTitle);
+        svgTilesGroup.appendChild(g);
+      }
+
+      document.getElementById('center-goal-tile').onclick = () => openPreviewModal(TILES[40]);
+      renderTokens();
+    }
+
+    function renderTokens() {
+      svgTokensGroup.innerHTML = '';
+      gameState.players.forEach((p, idx) => {
+        const pt = TILE_COORDS[p.position];
+        const offsetX = (idx % 3 - 1) * 10;
+        const offsetY = Math.floor(idx / 3) * 11 - 5;
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", pt.x + offsetX);
+        circle.setAttribute("cy", pt.y + offsetY);
+        circle.setAttribute("r", 9.5);
+        circle.setAttribute("fill", p.color.color);
+        circle.setAttribute("stroke", "#ffffff");
+        circle.setAttribute("stroke-width", "2");
+        circle.setAttribute("filter", "drop-shadow(0px 2px 4px rgba(0,0,0,0.5))");
+
+        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txt.setAttribute("x", pt.x + offsetX);
+        txt.setAttribute("y", pt.y + offsetY + 3.5);
+        txt.setAttribute("font-size", "8.5");
+        txt.setAttribute("font-weight", "900");
+        txt.setAttribute("text-anchor", "middle");
+        txt.setAttribute("fill", "#ffffff");
+        txt.textContent = p.name.charAt(0).toUpperCase();
+
+        svgTokensGroup.appendChild(circle);
+        svgTokensGroup.appendChild(txt);
+      });
+    }
+
+    /* ==========================================================================
+       6. LOGICA DI GIOCO, TURNO E DADO
+       ========================================================================== */
+    const playersRackEl = document.getElementById('players-rack');
+    const displayTurnPlayer = document.getElementById('display-turn-player');
+    const btnTactileRoll = document.getElementById('btn-tactile-roll');
+    const diceElement = document.getElementById('tactile-dice-cube');
+    const totalCountEl = document.getElementById('total-players-count');
+
+    function updateUI() {
+      totalCountEl.innerText = gameState.players.length;
+      playersRackEl.innerHTML = '';
+
+      gameState.players.forEach((p, idx) => {
+        const isCurrent = (idx === gameState.currentTurnIndex && gameState.players.length > 0);
+        const row = document.createElement('div');
+        row.className = `player-entry ${isCurrent ? 'is-turn' : ''}`;
+        row.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="token-avatar" style="background: ${p.color.color};">
+              ${p.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.88rem; color: var(--text-main);">
+                ${p.name} ${isCurrent ? '<span style="font-size: 0.65rem; color: var(--accent-gold); font-weight: 900;">★ ORA</span>' : ''}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">
+                Casella: <strong>#${p.position}</strong>
+              </div>
+            </div>
+          </div>
+          ${isAdmin ? `<button onclick="kickPlayer(${idx})" style="background:none;border:none;color:var(--text-muted);font-size:0.8rem;cursor:pointer;">✕</button>` : ''}
+        `;
+        playersRackEl.appendChild(row);
+      });
+
+      if (gameState.players.length > 0) {
+        const curr = gameState.players[gameState.currentTurnIndex];
+        displayTurnPlayer.innerHTML = `<span style="color:${curr.color.color}">●</span> ${curr.name}`;
+        btnTactileRoll.disabled = false;
+        document.getElementById('ticker-feed').innerText = `Tocca a ${curr.name}: lancia il dado!`;
+      } else {
+        displayTurnPlayer.innerText = "Aggiungi partecipanti per iniziare";
+        btnTactileRoll.disabled = true;
+        document.getElementById('ticker-feed').innerText = "In attesa dei giocatori...";
+      }
+
+      renderTokens();
+    }
+
+    const DICE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+
+    function rollDice() {
+      if (gameState.isRolling || gameState.players.length === 0) return;
+
+      // Se connessi a server Socket.io, delega al server-authoritative
+      if (socket && socket.connected && currentRoomId) {
+        socket.emit('request_roll_dice', { roomId: currentRoomId }, (res) => {
+          if (!res.success) alert(res.message);
+        });
+        return;
+      }
+
+      // Modalità Locale Standalone
+      const player = gameState.players[gameState.currentTurnIndex];
+      gameState.isRolling = true;
+      btnTactileRoll.disabled = true;
+      triggerHaptic();
+
+      animateDiceRoll(null, (finalRoll) => {
+        let current = player.position;
+        let target = current + finalRoll;
+        if (target > 40) target = 40 - (target - 40); // Rimbalzo classico
+
+        const timer = setInterval(() => {
+          if (current < target) current++;
+          else if (current > target) current--;
+
+          player.position = current;
+          playBeep(420, 'sine', 0.04);
+          renderTokens();
+          updateUI();
+
+          if (current === target) {
+            clearInterval(timer);
+            setTimeout(() => {
+              evaluateTileLanded(player, finalRoll);
+            }, 300);
+          }
+        }, 150);
+      });
+    }
+
+    function animateDiceRoll(forcedRoll, onComplete) {
+      playBeep(320, 'square', 0.06);
+      let count = 0;
+      const interval = setInterval(() => {
+        const r = Math.floor(Math.random() * 6);
+        diceElement.innerText = DICE_FACES[r];
+        count++;
+        if (count > 8) {
+          clearInterval(interval);
+          const finalVal = forcedRoll || (Math.floor(Math.random() * 6) + 1);
+          diceElement.innerText = DICE_FACES[finalVal - 1];
+          onComplete(finalVal);
+        }
+      }, 55);
+    }
+
+    function evaluateTileLanded(player, lastRoll) {
+      const tile = TILES[player.position];
+
+      if (player.position === 40) {
+        showVictory(player);
+        return;
+      }
+
+      // REGOLA DELL'OCA (Raddoppia e ritira!)
+      if (tile.type === 'goose') {
+        playBeep(600, 'triangle', 0.25);
+        alert(`🪿 Casella Oca #${tile.id}! "Di Oca in Oca si vola!" Avanzi di altri ${lastRoll} passi e ritiri subito!`);
+        player.position = Math.min(40, player.position + lastRoll);
+        renderTokens();
+        updateUI();
+        if (player.position === 40) showVictory(player);
+        else gameState.isRolling = false;
+        btnTactileRoll.disabled = false;
+        return;
+      }
+
+      // IL PONTE
+      if (tile.type === 'bridge') {
+        alert("🌉 Hai preso il Ponte! Avanzi direttamente alla Casella #12!");
+        player.position = 12;
+        renderTokens();
+        updateUI();
+        openChallengeModal(player, TILES[12]);
+        return;
+      }
+
+      // IL LABIRINTO
+      if (tile.type === 'maze') {
+        alert("🌀 Ti sei perso nel Labirinto! Torni indietro alla casella #15!");
+        player.position = 15;
+        renderTokens();
+        updateUI();
+        openChallengeModal(player, TILES[15]);
+        return;
+      }
+
+      // IL RESACONE / TESCHIO
+      if (tile.type === 'skull') {
+        playBeep(180, 'sawtooth', 0.4);
+        alert("☠️ RESACONE DELLE 6:00! Torni strisciando alla partenza (#0) e bevi 2 sorsi!");
+        player.position = 0;
+        renderTokens();
+        updateUI();
+        openChallengeModal(player, TILES[0]);
+        return;
+      }
+
+      openChallengeModal(player, tile);
+    }
+
+    /* ==========================================================================
+       7. MODALI SFIDA, VITTORIA E ANTEPRIME
+       ========================================================================== */
+    const modalChallenge = document.getElementById('modal-challenge');
+    const chBadge = document.getElementById('challenge-badge');
+    const chIcon = document.getElementById('challenge-icon');
+    const chTitle = document.getElementById('challenge-title');
+    const chPlayer = document.getElementById('challenge-player-acting');
+    const chDesc = document.getElementById('challenge-desc');
+    const btnChDone = document.getElementById('btn-challenge-done');
+    const btnChPass = document.getElementById('btn-challenge-pass');
+
+    function openChallengeModal(player, tile) {
+      chBadge.innerText = tile.type.toUpperCase();
+      chIcon.innerText = tile.icon;
+      chTitle.innerText = tile.title;
+      chPlayer.innerText = `Tocca a ${player.name}`;
+      chDesc.innerText = tile.desc;
+      btnChDone.innerText = "Fatto / Bevuto! 🍻";
+      btnChPass.style.display = "block";
+      modalChallenge.classList.remove('hidden');
+    }
+
+    function openPreviewModal(tile) {
+      chBadge.innerText = `CASELLA #${tile.id}`;
+      chIcon.innerText = tile.icon;
+      chTitle.innerText = tile.title;
+      chPlayer.innerText = "Anteprima Casella";
+      chDesc.innerText = tile.desc;
+      btnChDone.innerText = "Chiudi";
+      btnChPass.style.display = "none";
+      modalChallenge.classList.remove('hidden');
+    }
+
+    btnChDone.onclick = () => {
+      modalChallenge.classList.add('hidden');
+      finishTurn();
+    };
+
+    btnChPass.onclick = () => {
+      alert("🐔 Hai rifiutato la sfida! Paga penitenza bevendo 2 sorsi extra!");
+      modalChallenge.classList.add('hidden');
+      finishTurn();
+    };
+
+    function finishTurn() {
+      gameState.isRolling = false;
+      btnTactileRoll.disabled = false;
+      if (socket && socket.connected && currentRoomId) {
+        socket.emit('resolve_turn', { roomId: currentRoomId });
+      } else {
+        gameState.currentTurnIndex = (gameState.currentTurnIndex + 1) % gameState.players.length;
+        updateUI();
+      }
+    }
+
+    function showVictory(winner) {
+      confetti({ particleCount: 180, spread: 100, origin: { y: 0.6 } });
+      document.getElementById('winner-name-txt').innerText = winner.name.toUpperCase();
+      document.getElementById('modal-victory').classList.remove('hidden');
+    }
+
+    document.getElementById('btn-victory-restart').onclick = () => {
+      document.getElementById('modal-victory').classList.add('hidden');
+      gameState.players.forEach(p => p.position = 0);
+      gameState.currentTurnIndex = 0;
+      updateUI();
+    };
+
+    /* ==========================================================================
+       8. GESTIONE LOBBY, STANZE E ACCESSO ADMIN CON PASSWORD
+       ========================================================================== */
+    const modalLobby = document.getElementById('modal-lobby');
+    const viewPlayerJoin = document.getElementById('view-player-join');
+    const viewAdminLogin = document.getElementById('view-admin-login');
+    const inputPlayerName = document.getElementById('input-player-name');
+    const inputRoomCode = document.getElementById('input-room-code');
+    const inputAdminPass = document.getElementById('input-admin-password');
+    const adminFloatingBar = document.getElementById('admin-floating-bar');
+
+    document.getElementById('btn-open-login').onclick = () => {
+      modalLobby.classList.remove('hidden');
+    };
+    document.getElementById('btn-close-lobby').onclick = () => {
+      modalLobby.classList.add('hidden');
+    };
+
+    // Switch tra Giocatore e Admin
+    document.getElementById('btn-switch-to-admin-view').onclick = () => {
+      viewPlayerJoin.style.display = 'none';
+      viewAdminLogin.style.display = 'block';
+      document.getElementById('modal-lobby-title').innerText = "Regia Host (Admin)";
+      document.getElementById('modal-lobby-desc').innerText = "Crea la stanza protetta da password e dirigi la serata!";
+    };
+
+    document.getElementById('btn-back-to-player-view').onclick = () => {
+      viewAdminLogin.style.display = 'none';
+      viewPlayerJoin.style.display = 'block';
+      document.getElementById('modal-lobby-title').innerText = "Unisciti alla Partita";
+      document.getElementById('modal-lobby-desc').innerText = "Giocate tutti insieme dai vostri smartphone in tempo reale!";
+    };
+
+    document.getElementById('btn-link-admin').onclick = () => {
+      modalLobby.classList.remove('hidden');
+      document.getElementById('btn-switch-to-admin-view').click();
+    };
+
+    const boxStep1Name = document.getElementById('box-step1-name');
+    const boxStep2Waiting = document.getElementById('box-step2-waiting');
+    const savedNameDisplay = document.getElementById('saved-player-name-display');
+    const btnSaveMyName = document.getElementById('btn-save-my-name');
+    const btnChangeMyName = document.getElementById('btn-change-my-name');
+
+    // Recupera eventuale nome salvato in precedenza
+    let cachedPlayerName = localStorage.getItem('oca_player_name') || '';
+    if (cachedPlayerName) {
+      inputPlayerName.value = cachedPlayerName;
+      savedNameDisplay.innerText = cachedPlayerName;
+      boxStep1Name.style.display = 'none';
+      boxStep2Waiting.style.display = 'block';
+    }
+
+    btnSaveMyName.onclick = () => {
+      const name = inputPlayerName.value.trim();
+      if (!name) return alert("Inserisci il tuo nome!");
+      localStorage.setItem('oca_player_name', name);
+      cachedPlayerName = name;
+      savedNameDisplay.innerText = name;
+      boxStep1Name.style.display = 'none';
+      boxStep2Waiting.style.display = 'block';
+    };
+
+    btnChangeMyName.onclick = () => {
+      boxStep2Waiting.style.display = 'none';
+      boxStep1Name.style.display = 'block';
+      inputPlayerName.focus();
+    };
+
+    // Auto-compilazione codice stanza se presente nell'URL (es. ?room=OCA-7X)
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    if (roomParam) {
+      inputRoomCode.value = roomParam.toUpperCase();
+    }
+
+    // Submit Giocatore
+    document.getElementById('btn-submit-join').onclick = () => {
+      const name = cachedPlayerName || inputPlayerName.value.trim();
+      let code = inputRoomCode.value.trim().toUpperCase();
+      if (!name) {
+        boxStep2Waiting.style.display = 'none';
+        boxStep1Name.style.display = 'block';
+        return alert("Inserisci prima il tuo nome!");
+      }
+      if (!code) {
+        return alert("Inserisci il PIN della stanza a 4 cifre!");
+      }
+
+      // Se l'utente scrive o omette 'OCA-', gestiamo entrambi i casi in modo tollerante
+      const cleanCode = code.replace(/[^A-Z0-9]/g, '');
+
+      if (socket && socket.connected) {
+        // Proviamo a entrare col codice digitato o normalizzato
+        socket.emit('player_join_room', { roomId: code, playerName: name }, (res) => {
+          if (res.success) {
+            currentRoomId = code;
+            localPlayerId = socket.id;
+            modalLobby.classList.add('hidden');
+            setupRoomHeader(code);
+            alert(`🎉 Benvenuto ${name}! Sei entrato nella stanza ${code}!`);
+          } else {
+            // Tentativo secondario se c'è discordanza di prefisso
+            socket.emit('player_join_room', { roomId: cleanCode, playerName: name }, (res2) => {
+              if (res2.success) {
+                currentRoomId = cleanCode;
+                localPlayerId = socket.id;
+                modalLobby.classList.add('hidden');
+                setupRoomHeader(cleanCode);
+                alert(`🎉 Benvenuto ${name}! Sei entrato nella stanza ${cleanCode}!`);
+              } else {
+                alert(res.message || res2.message);
+              }
+            });
+          }
+        });
+      } else {
+        // Fallback locale
+        addLocalPlayer(name);
+        modalLobby.classList.add('hidden');
+      }
+    };
+
+    // Submit Admin (Creazione Stanza con Password)
+    document.getElementById('btn-submit-admin').onclick = () => {
+      const pass = inputAdminPass.value.trim();
+      const rName = document.getElementById('input-admin-room-name').value.trim();
+
+      if (socket && socket.connected) {
+        socket.emit('admin_create_room', { password: pass, roomName: rName }, (res) => {
+          if (res.success) {
+            isAdmin = true;
+            adminToken = res.adminToken;
+            currentRoomId = res.roomId;
+            adminFloatingBar.style.display = 'flex';
+            modalLobby.classList.add('hidden');
+            setupRoomHeader(res.roomId);
+            showQRCode(res.roomId);
+          } else {
+            alert(res.message);
+          }
+        });
+      } else {
+        // Fallback admin locale
+        if (pass === "oca123" || pass.length >= 3) {
+          isAdmin = true;
+          adminFloatingBar.style.display = 'flex';
+          modalLobby.classList.add('hidden');
+          setupRoomHeader("LOCALE-ADMIN");
+          alert("👑 Accesso Admin attivato in locale! Pannello Regia sbloccato in basso.");
+        } else {
+          alert("Password Admin non valida!");
+        }
+      }
+    };
+
+    function addLocalPlayer(name) {
+      if (gameState.players.length >= 12) return alert("Massimo 12 giocatori!");
+      const pIdx = gameState.players.length;
+      gameState.players.push({
+        id: 'local_' + pIdx,
+        name: name,
+        position: 0,
+        color: PLAYER_PALETTE[pIdx % PLAYER_PALETTE.length]
+      });
+      updateUI();
+    }
+
+    window.kickPlayer = function(idx) {
+      if (!isAdmin) return;
+      if (confirm(`Rimuovere questo giocatore dalla tavolata?`)) {
+        if (socket && socket.connected && currentRoomId) {
+          socket.emit('admin_god_action', {
+            roomId: currentRoomId,
+            adminToken: adminToken,
+            action: 'KICK_PLAYER',
+            targetPlayerIndex: idx
+          });
+        } else {
+          gameState.players.splice(idx, 1);
+          if (gameState.currentTurnIndex >= gameState.players.length) gameState.currentTurnIndex = 0;
+          updateUI();
+        }
+      }
+    };
+
+    function setupRoomHeader(code) {
+      const btn = document.getElementById('btn-show-room-qr');
+      document.getElementById('current-room-label').innerText = code;
+      btn.style.display = 'inline-flex';
+      btn.onclick = () => showQRCode(code);
+    }
+
+    function showQRCode(code) {
+      const modal = document.getElementById('modal-qr');
+      const canvas = document.getElementById('qr-canvas');
+      document.getElementById('qr-room-code-display').innerText = code;
+
+      const fullUrl = window.location.origin + window.location.pathname + '?room=' + code;
+      if (typeof QRCode !== 'undefined') {
+        QRCode.toCanvas(canvas, fullUrl, { width: 200, margin: 2 }, function (error) {
+          if (error) console.error(error);
+        });
+      }
+      modal.classList.remove('hidden');
+    }
+
+    document.getElementById('btn-close-qr').onclick = () => {
+      document.getElementById('modal-qr').classList.add('hidden');
+    };
+
+    // BOTTONI GOD MODE ADMIN
+    document.getElementById('btn-god-cascade').onclick = () => {
+      if (socket && socket.connected && currentRoomId) {
+        socket.emit('admin_god_action', { roomId: currentRoomId, adminToken, action: 'FORCE_CASCADE' });
+      } else {
+        alert("🌊 CASCATA GENERALE SCATENATA DALL'ADMIN! Tutti bevono ora!");
+      }
+    };
+
+    document.getElementById('btn-god-reset').onclick = () => {
+      if (confirm("Vuoi azzerare tutte le pedine alla partenza (#0)?")) {
+        if (socket && socket.connected && currentRoomId) {
+          socket.emit('admin_god_action', { roomId: currentRoomId, adminToken, action: 'RESET_GAME' });
+        } else {
+          gameState.players.forEach(p => p.position = 0);
+          gameState.currentTurnIndex = 0;
+          updateUI();
+        }
+      }
+    };
+
+    document.getElementById('btn-god-custom-drop').onclick = () => {
+      const challenge = prompt("Scrivi la penitenza a sorpresa da mandare ai telefoni:");
+      if (challenge) {
+        if (socket && socket.connected && currentRoomId) {
+          socket.emit('admin_god_action', { roomId: currentRoomId, adminToken, action: 'CUSTOM_CHALLENGE', customMessage: challenge });
+        } else {
+          alert(`⚡ SFIDA FLASH DELL'ADMIN:\n${challenge}`);
+        }
+      }
+    };
+
+    // MOBILE TABS (Controller vs Board)
+    const tabCtrl = document.getElementById('tab-controller');
+    const tabBrd = document.getElementById('tab-board');
+    const secCtrl = document.getElementById('section-controller');
+    const secBrd = document.getElementById('section-board');
+
+    tabCtrl.onclick = () => {
+      tabCtrl.classList.add('active');
+      tabBrd.classList.remove('active');
+      secCtrl.style.display = 'flex';
+      secBrd.style.display = 'none';
+    };
+
+    tabBrd.onclick = () => {
+      tabBrd.classList.add('active');
+      tabCtrl.classList.remove('active');
+      secBrd.style.display = 'flex';
+      secCtrl.style.display = 'none';
+    };
+
+    // Listeners Tastiera e Dado
+    btnTactileRoll.onclick = rollDice;
+    diceElement.onclick = () => {
+      if (!btnTactileRoll.disabled) rollDice();
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !btnTactileRoll.disabled && modalChallenge.classList.contains('hidden') && modalLobby.classList.contains('hidden') && document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        rollDice();
+      }
+    });
+
+    // Inizializzazione al caricamento
+    initSocketConnection();
+    renderSvgBoard();
+
+    // Se non c'è una sessione attiva, apri la lobby di benvenuto/inserimento nome
+    if (!currentRoomId) {
+      modalLobby.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "gioco-oca-party",
+  "version": "2.0.0",
+  "description": "Il Nobile Gioco dell'Oca - Party Edition con Multiplayer in tempo reale per smartphone e pannello Admin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "author": "Tech Host",
+  "license": "MIT"
+}

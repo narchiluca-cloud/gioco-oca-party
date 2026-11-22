@@ -1,0 +1,10 @@
+services:
+  gioco-oca:
+    build: .
+    container_name: gioco-oca-party
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      # - ADMIN_PASSWORD=la_tua_password_segreta  <-- imposta questa variabile nel tuo environment o .env

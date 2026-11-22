@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Il Nobile Gioco dell'Oca 3D — Edizione Tradizionale in Legno</title>
+  
+  <!-- Foglio di Stile Artigianale & Medieval Fantasy -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Three.js + OrbitControls + Canvas-Confetti + QRCode + Socket.io -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+
+  <!-- CONTENITORE CANVAS THREE.JS (Tavolo e Tabellone 3D) -->
+  <div id="webgl-canvas-container"></div>
+
+  <!-- =========================================================================
+       GATEWAY INIZIALE TAVERNA (WELCOME SCREEN)
+       All'avvio copre completamente la mappa 3D: solo la box d'ingresso e regia.
+       ========================================================================= -->
+  <div id="welcome-screen" class="welcome-screen">
+    <div class="welcome-parchment-box">
+      
+      <!-- INTESTAZIONE LOGO & TITOLO -->
+      <div class="welcome-header">
+        <div class="welcome-crest">🦆🍻</div>
+        <h2 class="welcome-title">GIOCO DELL'OCA 3D</h2>
+        <div class="welcome-tagline">Taverna Medievale • Drinking Edition</div>
+      </div>
+
+      <!-- VISTA 1: INGRESSO GIOCATORE (NOME + CODICE STANZA / QR) -->
+      <div id="welcome-view-player">
+        
+        <div class="welcome-field-group">
+          <label class="welcome-label" for="welcome-input-name">
+            <span class="label-step">1</span> Il tuo Nome:
+          </label>
+          <input type="text" id="welcome-input-name" class="parchment-input" placeholder="Come ti chiamano gli amici? (es. Marco)" maxlength="14" autocomplete="name">
+        </div>
+
+        <div class="welcome-field-group">
+          <label class="welcome-label" for="welcome-input-pin">
+            <span class="label-step">2</span> Codice Stanza (PIN a 4 cifre):
+          </label>
+          <input type="text" id="welcome-input-pin" class="parchment-input pin-code" placeholder="4821" maxlength="6" inputmode="numeric">
+          
+          <div id="welcome-qr-badge" class="welcome-qr-detected" style="display: none;">
+            ✨ PIN rilevato automaticamente dal QR Code!
+          </div>
+        </div>
+
+        <button id="welcome-btn-join" class="btn-roll-dice welcome-btn-primary">
+          🍻 ENTRA AL TAVOLO
+        </button>
+
+        <!-- SEPARATORE CON MOTIVO ARTIGIANALE -->
+        <div class="welcome-divider">
+          <span>♦ ─── ❖ ─── ♦</span>
+        </div>
+
+        <!-- IL DESIGN ELEGANTE: SEI UN ADMIN? CREA STANZA -->
+        <div id="welcome-btn-show-admin" class="admin-entry-card" title="Sei l'Host della serata? Crea la stanza qui!">
+          <div class="admin-card-icon-box">
+            <span class="admin-card-crown">👑</span>
+          </div>
+          <div class="admin-card-info">
+            <span class="admin-card-title">Sei un Admin?</span>
+            <span class="admin-card-sub">Crea la stanza & apri la taverna per tutti</span>
+          </div>
+          <div class="admin-card-arrow-box">
+            <span class="admin-card-arrow">➔</span>
+          </div>
+        </div>
+
+        <!-- OPZIONE PER GIOCARE OFFLINE / HOTSEAT -->
+        <div class="welcome-offline-box">
+          <button id="welcome-btn-offline" class="welcome-link-btn">
+            🎮 Oppure gioca offline sullo stesso schermo
+          </button>
+        </div>
+
+      </div>
+
+      <!-- VISTA 2: CREAZIONE STANZA HOST (ADMIN) -->
+      <div id="welcome-view-admin" style="display: none;">
+        <div class="admin-auth-header">
+          <span class="admin-auth-badge">REGIA DELL'HOST</span>
+          <h3 class="admin-auth-title">Crea Nuova Stanza</h3>
+          <p class="admin-auth-desc">Inserisci la Master Password per aprire la taverna. Verrà generato il PIN a 4 cifre e il QR Code per tutti gli amici.</p>
+        </div>
+
+        <div class="welcome-field-group">
+          <label class="welcome-label" for="welcome-admin-pass">Master Password:</label>
+          <input type="password" id="welcome-admin-pass" class="parchment-input" placeholder="Password Host (default: oca123)">
+        </div>
+
+        <div class="welcome-field-group">
+          <label class="welcome-label" for="welcome-admin-room-name">Nome Tavolata (opzionale):</label>
+          <input type="text" id="welcome-admin-room-name" class="parchment-input" placeholder="Es. Festa da Luca" maxlength="24">
+        </div>
+
+        <button id="welcome-btn-create-room" class="btn-roll-dice welcome-btn-admin-submit">
+          🏰 CREA STANZA & GENERA QR CODE
+        </button>
+
+        <div style="margin-top: 14px; text-align: center;">
+          <button id="welcome-btn-back-to-player" class="welcome-link-btn">
+            ← Torna all'accesso Giocatore
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- HUD INTERATTIVO IN SOVRAPPRESSIONE (OVERLAY) -->
+  <div id="hud-layer">
+
+    <!-- 1. BARRA SUPERIORE INTARSIATA: TITOLO & STATUS GIOCATORI -->
+    <header class="top-banner interactive">
+      <div class="brand-section">
+        <div class="brand-badge">🪿</div>
+        <div>
+          <h1 class="brand-title">GIOCO DELL'OCA 3D</h1>
+          <div class="brand-sub">Tradizionale &bull; Intagliato a Mano &bull; Per Tutti</div>
+        </div>
+      </div>
+
+      <!-- STATUS DELLE 4 OCHE IN GARA (CON ALCOLOMETRO INTEGRATO) -->
+      <div class="players-rack" id="players-hud-rack">
+        <div class="player-token-pill active" id="player-pill-0">
+          <span class="pawn-dot red"></span>
+          <span>Oca Rossa</span>
+          <span class="tile-badge" id="pawn-pos-badge-0">#0</span>
+          <span class="drink-tally-badge" id="pawn-drink-badge-0" title="Sorsi e Shot bevuti">🍺0 🥃0</span>
+        </div>
+        <div class="player-token-pill" id="player-pill-1">
+          <span class="pawn-dot yellow"></span>
+          <span>Oca Gialla</span>
+          <span class="tile-badge" id="pawn-pos-badge-1">#0</span>
+          <span class="drink-tally-badge" id="pawn-drink-badge-1" title="Sorsi e Shot bevuti">🍺0 🥃0</span>
+        </div>
+        <div class="player-token-pill" id="player-pill-2">
+          <span class="pawn-dot green"></span>
+          <span>Oca Verde</span>
+          <span class="tile-badge" id="pawn-pos-badge-2">#0</span>
+          <span class="drink-tally-badge" id="pawn-drink-badge-2" title="Sorsi e Shot bevuti">🍺0 🥃0</span>
+        </div>
+        <div class="player-token-pill" id="player-pill-3">
+          <span class="pawn-dot blue"></span>
+          <span>Oca Blu</span>
+          <span class="tile-badge" id="pawn-pos-badge-3">#0</span>
+          <span class="drink-tally-badge" id="pawn-drink-badge-3" title="Sorsi e Shot bevuti">🍺0 🥃0</span>
+        </div>
+      </div>
+
+      <!-- TASTI RAPIDI GOLIARDIA (CASCATA & SHOT DI GRUPPO & DOMANDA SCOMODA) -->
+      <div class="chaos-actions">
+        <button class="chaos-btn waterfall" id="btn-trigger-waterfall" title="Tutti bevono finché chi ha tirato non finisce!">
+          🌊 <span>CASCATA!</span>
+        </button>
+        <button class="chaos-btn" id="btn-trigger-shot" title="Brindisi di shot a sorpresa!">
+          🥃 <span>SHOT!</span>
+        </button>
+        <button class="chaos-btn spicy" id="btn-trigger-truth" title="Spara una domanda scomoda a bruciapelo!">
+          💣 <span>DOMANDA SCOMODA!</span>
+        </button>
+      </div>
+
+      <!-- BOTTONI DI SERVIZIO (Lobby, QR, Regole, Suono) -->
+      <div class="utility-btns">
+        <button class="icon-btn" id="btn-show-room-qr" style="display: none; border-color: var(--gold-bright); color: var(--gold-bright);" title="Mostra QR Code della Stanza">
+          📱 <span>PIN: <strong id="current-room-pin">----</strong></span>
+        </button>
+        <button class="icon-btn" id="btn-open-lobby" title="Accedi come Giocatore o Admin">
+          👑 <span>Stanza & Host</span>
+        </button>
+        <button class="icon-btn" id="btn-rules-modal" title="Leggi le Regole Alcoliche">
+          📜 <span>Regole</span>
+        </button>
+        <button class="icon-btn" id="btn-sound-toggle" title="Attiva/Disattiva Suoni">
+          <span id="sound-toggle-icon">🔊 ON</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. PARTE INFERIORE: CRONACHE & POSTAZIONE DADI 3D -->
+    <footer class="bottom-controls-row">
+
+      <!-- LE CRONACHE DELLA TAVOLA (EVENT LOG NARRATIVO) -->
+      <div class="chronicles-parchment interactive">
+        <div class="event-feed" id="event-feed-list">
+          <!-- Popolato dinamicamente via JS -->
+        </div>
+      </div>
+
+      <!-- STAZIONE DI LANCIO DEI DADI (IN LEGNO E OTTONE) -->
+      <div class="dice-action-station interactive">
+        <div class="turn-announcer" id="turn-announcer-text">
+          TURNO DI <span style="color: var(--pawn-red);">OCA ROSSA</span>
+        </div>
+
+        <div class="dice-tray-view">
+          <div class="wood-dice-box" id="dice-face-1">⚀</div>
+          <div class="wood-dice-box" id="dice-face-2">⚂</div>
+        </div>
+
+        <button class="btn-roll-dice" id="btn-roll-dice">
+          <span>LANCIA I DADI</span> 🎲
+        </button>
+        <div style="font-size: 0.68rem; color: #dfcaa6; margin-top: 6px; letter-spacing: 0.05em;">
+          Clicca il pulsante o premi la <strong>barra SPAZIO</strong>
+        </div>
+      </div>
+
+      <!-- DOCK CONTROLLI DELLA TELECAMERA -->
+      <div class="camera-dock interactive">
+        <button class="cam-btn active" id="cam-btn-iso" title="Prospettiva Isometrica">📐 Vista 3D Tavolo</button>
+        <button class="cam-btn" id="cam-btn-top" title="Vista Zenitale Globale">🗺️ Dall'Alto</button>
+        <button class="cam-btn" id="cam-btn-pawn" title="Inquadra l'Oca di Turno">🔍 Segui Oca</button>
+      </div>
+
+    </footer>
+
+  </div>
+
+  <!-- MODAL SFIDA ALCOLICA & PENITENZA ATTIVA -->
+  <div class="modal-scrim" id="modal-drinking-challenge">
+    <div class="modal-parchment-box" style="max-width: 500px;">
+      <div id="challenge-cat-badge" class="challenge-cat-badge badge-shot">SHOT TIME</div>
+      <div id="challenge-icon-display" style="font-size: 3.2rem; margin: 4px 0;">🥃</div>
+      <h3 class="modal-heading" id="challenge-tile-title" style="font-size: 1.45rem; margin-bottom: 2px;">Titolo Casella</h3>
+      <div id="challenge-player-acting" style="font-size: 0.9rem; font-weight: 800; color: var(--gold-dark); margin-bottom: 12px;">Tocca all'Oca Rossa</div>
+
+      <div id="challenge-instruction-box" style="background: rgba(255,255,255,0.65); border: 2px solid var(--parchment-border); border-radius: 14px; padding: 16px; font-size: 0.95rem; line-height: 1.5; color: var(--ink-primary); margin-bottom: 8px;">
+        Descrizione della bevuta o penitenza...
+      </div>
+
+      <!-- BOTTONE PER PESCARE UN'ALTRA DOMANDA SCOMODA -->
+      <button id="btn-reroll-truth" class="icon-btn" style="display: none; margin: 0 auto 12px; font-size: 0.78rem;">
+        🔄 <span>Pesca un'altra Domanda Scomoda</span>
+      </button>
+
+      <div class="modal-actions-row">
+        <button class="btn-drink-done" id="btn-challenge-done">
+          ✅ FATTO / BEVUTO! 🍻
+        </button>
+        <button class="btn-drink-chicken" id="btn-challenge-chicken">
+          🐔 RIFIUTO (+2 Sorsi)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL VITTORIA AL CASTELLO -->
+  <div class="modal-scrim" id="modal-victory">
+    <div class="modal-parchment-box">
+      <div class="modal-icon-badge">👑🏰🎉</div>
+      <h2 class="modal-heading" id="winner-title">GLORIA ALL'OCA VITTORIOSA!</h2>
+      <p class="modal-text" id="winner-desc">
+        Ha superato ponti, pozzi e trabocchetti ed è entrata per prima nel maestoso Castello della Casella 63!
+      </p>
+      <button class="btn-roll-dice" id="btn-restart-game" style="margin: 0 auto; width: 100%; max-width: 280px;">
+        NUOVA PARTITA ⚔️
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL REGOLE CLASSICHE -->
+  <div class="modal-scrim" id="modal-rules">
+    <div class="modal-parchment-box" style="max-width: 620px; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed var(--parchment-border); padding-bottom: 8px; margin-bottom: 14px;">
+        <h3 class="brand-title" style="color: var(--wood-frame); font-size: 1.3rem;">REGOLE DEL GIOCO DELL'OCA — DRINKING PARTY EDITION</h3>
+        <button id="btn-close-rules" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--wood-frame); font-weight: bold;">✕</button>
+      </div>
+
+      <div style="max-height: 55vh; overflow-y: auto; padding-right: 8px; font-size: 0.88rem; line-height: 1.6; color: var(--ink-secondary);">
+        <p style="margin-bottom: 10px;"><strong>🎯 Obiettivo:</strong> Raggiungere per primo esattamente la <strong>Casella 63 (Il Castello)</strong> con il lancio dei dadi per essere incoronato Re della serata!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🍺 Come si beve:</strong> Ad ogni casella atterrata compare la sfida alcolica. Clicca <em>"✅ BEVUTO / FATTO! 🍻"</em> per registrare la bevuta nel tuo alcolometro, oppure <em>"🐔 RIFIUTO"</em> per beccarti 2 sorsi extra di penitenza!</p>
+
+        <p style="margin-bottom: 10px;"><strong>🪿 Caselle dell'Oca (5, 9, 14, 18, 23, 27, 32, 36, 41, 45, 50, 54, 59):</strong> "Di Oca in Oca si vola!" — Avanzi di nuovo del valore del dado e assegni sorsi a chi vuoi!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🌉 Casella 6 (Il Ponte):</strong> Salto rapido alla <strong>Casella 12</strong> con brindisi di festeggiamento.</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🍻 Casella 19 (La Locanda):</strong> Bevi mezzo bicchiere del tuo drink per scappare subito, oppure salti 2 turni da sobrio!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🕳️ Casella 31 (Il Pozzo):</strong> 1 Shot di riscatto per arrampicarti subito fuori, o resti intrappolato finché un altro amico non vi cade!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🌀 Casella 42 (Il Labirinto):</strong> Ti sei perso tornando a casa: torni indietro alla <strong>Casella 30</strong> e bevi 2 sorsi!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>🔒 Casella 52 (La Prigione):</strong> Un compagno deve sacrificarsi bevendo 2 sorsi per farti uscire su cauzione, altrimenti salti 2 turni!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>☠️ Casella 58 (Il Resacone delle 6:00):</strong> Sei crollato prima dell'alba! Torni strisciando alla partenza (#1) e bevi 2 sorsi di rammarico!</p>
+        
+        <p style="margin-bottom: 10px;"><strong>👑 Rimbalzo al Traguardo & Vittoria (Casella 63):</strong> Serve il tiro esatto. Chi vince fa finire il bicchiere a TUTTI gli altri presenti!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ENTRA COME GIOCATORE / CREA STANZA COME ADMIN -->
+  <div class="modal-scrim" id="modal-lobby">
+    <div class="modal-parchment-box" style="max-width: 480px;">
+      <div class="challenge-cat-badge badge-rule">REGISTRO DELLA TAVERNA</div>
+      <h3 class="modal-heading" id="lobby-title" style="font-size: 1.5rem; margin-bottom: 4px;">Unisciti alla Partita</h3>
+      <p style="font-size: 0.82rem; color: var(--ink-secondary); margin-bottom: 16px;" id="lobby-subtitle">
+        Inserisci il tuo nome per partecipare dal tuo smartphone!
+      </p>
+
+      <!-- VIEW GIOCATORE STEP 1: NOME -->
+      <div id="lobby-step1-name">
+        <input type="text" id="input-lobby-player-name" class="parchment-input" placeholder="Il tuo nome (es. Marco)" maxlength="14">
+        <button id="btn-lobby-save-name" class="btn-roll-dice" style="width: 100%; margin-bottom: 12px; font-size: 0.95rem;">
+          Salva il mio Nome 🍻
+        </button>
+      </div>
+
+      <!-- VIEW GIOCATORE STEP 2: ATTESA ADMIN & PIN -->
+      <div id="lobby-step2-waiting" style="display: none; background: rgba(255,255,255,0.6); border: 2px dashed var(--gold-dark); border-radius: 14px; padding: 14px; margin-bottom: 14px;">
+        <div style="font-size: 0.95rem; font-weight: 800; color: var(--wood-carve); margin-bottom: 4px;">
+          Ciao <span id="lobby-saved-name" style="color: var(--ink-primary);"></span>! 👋
+        </div>
+        <p style="font-size: 0.78rem; color: var(--ink-secondary); margin-bottom: 10px;">
+          In attesa che l'Admin apra la taverna. Appena l'Host ti dà il <strong>PIN a 4 cifre</strong> (o scansiona il suo QR Code), inseriscilo qui:
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="input-lobby-room-pin" class="parchment-input pin-code" placeholder="4821" maxlength="6" inputmode="numeric" style="margin-bottom: 0;">
+          <button id="btn-lobby-join-room" class="btn-roll-dice" style="padding: 0 18px; font-size: 0.9rem;">
+            Entra! 🚀
+          </button>
+        </div>
+        <div style="margin-top: 8px; text-align: right;">
+          <button id="btn-lobby-change-name" style="background: none; border: none; font-size: 0.72rem; color: var(--ink-secondary); text-decoration: underline; cursor: pointer;">
+            Cambia nome
+          </button>
+        </div>
+      </div>
+
+      <!-- LINK SEGRETO HOST/ADMIN -->
+      <div id="lobby-admin-link-box" style="margin-top: 10px;">
+        <button id="btn-lobby-switch-admin" style="background: none; border: none; font-size: 0.78rem; font-weight: 800; color: var(--gold-dark); cursor: pointer; text-decoration: underline;">
+          👑 Sei l'Host della Serata? Accedi come Admin con Password
+        </button>
+      </div>
+
+      <!-- VIEW ADMIN CON PASSWORD -->
+      <div id="lobby-view-admin" style="display: none; background: rgba(45, 25, 12, 0.08); border: 2px solid var(--gold-dark); border-radius: 14px; padding: 16px; margin-top: 10px;">
+        <h4 style="font-family:'Cinzel', serif; font-size:1rem; color:var(--wood-frame); margin-bottom: 6px;">Autenticazione Host</h4>
+        <input type="password" id="input-admin-password" class="parchment-input" placeholder="Master Password (default: oca123)">
+        <input type="text" id="input-admin-room-name" class="parchment-input" placeholder="Nome della Tavolata (es. Festa da Luca)">
+        <button id="btn-admin-submit-create" class="btn-roll-dice" style="background: linear-gradient(180deg, #2e7a46, #1a522c); border-color:#5cdb83; width: 100%; margin-bottom: 10px; font-size:0.95rem;">
+          Crea Stanza & Apri Regia 👑
+        </button>
+        <button id="btn-admin-cancel" style="background: none; border: none; font-size: 0.75rem; color: var(--ink-secondary); text-decoration: underline; cursor: pointer;">
+          ← Torna all'accesso giocatore
+        </button>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <button id="btn-close-lobby" style="background: none; border: none; font-size: 0.74rem; color: var(--ink-secondary); cursor: pointer;">
+          Chiudi (Gioca in Locale)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: QR CODE PER SMARTPHONE DEGLI AMICI -->
+  <div class="modal-scrim" id="modal-qr">
+    <div class="modal-parchment-box" style="max-width: 440px;">
+      <div class="challenge-cat-badge badge-rule">ACCESSO SMARTPHONE</div>
+      <h3 class="modal-heading" style="font-size: 1.4rem; margin-bottom: 4px;">Fai Inquadrare agli Amici</h3>
+      <p style="font-size: 0.8rem; color: var(--ink-secondary); margin-bottom: 12px;">
+        Punta la fotocamera del telefono sul codice per entrare all'istante senza digitare nulla!
+      </p>
+
+      <div style="display: flex; justify-content: center; margin: 10px 0;">
+        <canvas id="qr-canvas-element" style="border-radius: 14px; border: 4px solid var(--parchment-border); box-shadow: 0 6px 16px rgba(0,0,0,0.25);"></canvas>
+      </div>
+
+      <div style="font-family:'Cinzel', serif; font-size: 1.3rem; font-weight: 900; color: var(--wood-carve); margin-bottom: 14px;">
+        PIN STANZA: <span id="qr-pin-text" style="color: var(--gold-dark); letter-spacing: 0.1em;">----</span>
+      </div>
+
+      <button id="btn-close-qr" class="btn-roll-dice" style="width: 100%;">
+        Chiudi e Torna al Tavolo
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL: TELETRASPORTO ADMIN (GOD MODE) -->
+  <div class="modal-scrim" id="modal-teleport">
+    <div class="modal-parchment-box" style="max-width: 460px;">
+      <div class="challenge-cat-badge badge-dare">POTERE DELL'HOST</div>
+      <h3 class="modal-heading" style="font-size: 1.4rem; margin-bottom: 6px;">Teletrasporta un Giocatore</h3>
+      <p style="font-size: 0.82rem; color: var(--ink-secondary); margin-bottom: 14px;">
+        Sposta a tradimento una pedina su una casella bersaglio!
+      </p>
+
+      <div style="text-align: left; margin-bottom: 10px;">
+        <label style="font-size: 0.78rem; font-weight: 800; color: var(--wood-carve);">Scegli il Giocatore:</label>
+        <select id="select-teleport-player" class="parchment-input" style="margin-top: 4px;">
+          <option value="0">Oca Rossa</option>
+          <option value="1">Oca Gialla</option>
+          <option value="2">Oca Verde</option>
+          <option value="3">Oca Blu</option>
+        </select>
+      </div>
+
+      <div style="text-align: left; margin-bottom: 16px;">
+        <label style="font-size: 0.78rem; font-weight: 800; color: var(--wood-carve);">Casella Bersaglio:</label>
+        <select id="select-teleport-destination" class="parchment-input" style="margin-top: 4px;">
+          <option value="0">#0 Molo di Partenza</option>
+          <option value="1">#1 Partenza</option>
+          <option value="6">#6 Il Ponte (Salta a 12)</option>
+          <option value="19">#19 La Locanda (Bevi mezzo bicchiere o salta 2 turni)</option>
+          <option value="31">#31 Il Pozzo delle 4:00 AM (Intrappolato)</option>
+          <option value="42">#42 Il Labirinto (Ritorno a 30)</option>
+          <option value="52">#52 La Prigione (Cauzione o bloccato 3 turni)</option>
+          <option value="58">#58 Lo Scheletro / Resacone (Torna alla 1!)</option>
+          <option value="63">#63 Il Castello Reale (Vittoria!)</option>
+        </select>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button id="btn-execute-teleport" class="btn-roll-dice" style="flex: 2; font-size: 0.95rem;">
+          ⚡ Teletrasporta!
+        </button>
+        <button id="btn-close-teleport" class="icon-btn" style="flex: 1; justify-content: center;">
+          Annulla
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BARRA REGIA FLUTTUANTE DELL'ADMIN (GOD MODE) -->
+  <div id="admin-god-bar" class="admin-god-bar" style="display: none;">
+    <div class="admin-label-tag">👑 REGIA HOST</div>
+    <button class="admin-pill-btn" id="btn-admin-waterfall" title="Forza cascata per tutti">🌊 Cascata</button>
+    <button class="admin-pill-btn" id="btn-admin-shot" title="Brindisi di shot generale">🥃 Round Shot</button>
+    <button class="admin-pill-btn" id="btn-admin-truth" title="Spara una domanda scomoda a bruciapelo">💣 Domanda</button>
+    <button class="admin-pill-btn" id="btn-admin-teleport-open" title="Teletrasporta una pedina">♟️ Sposta Oca</button>
+    <button class="admin-pill-btn" id="btn-admin-reset" title="Azzera posizioni e partita">🔄 Reset</button>
+    <button class="admin-pill-btn" id="btn-admin-qr-open" title="Mostra QR Code agli amici">📱 QR Stanza</button>
+  </div>
+
+  <!-- =========================================================================
+       MOBILE: FAB ADMIN + BOTTOM SHEET + DRAWER GIOCATORI + TICKER EVENTI
+       Elementi aggiuntivi visibili solo su smartphone (< 860px via CSS)
+       ========================================================================= -->
+  
+  <!-- FAB ADMIN MOBILE (Pulsante galleggiante circolare) -->
+  <button id="admin-fab-mobile" class="admin-fab-mobile" style="display: none;" title="Apri Regia Host">
+    👑
+  </button>
+
+  <!-- BOTTOM SHEET ADMIN MOBILE (Cassetto dal basso con griglia comandi) -->
+  <div id="admin-sheet-mobile" class="admin-sheet-mobile">
+    <div class="admin-sheet-backdrop" id="admin-sheet-backdrop"></div>
+    <div class="admin-sheet-panel">
+      <div class="admin-sheet-handle"></div>
+      <div class="admin-sheet-title">👑 REGIA DELL'HOST</div>
+      <div class="admin-sheet-grid">
+        <button class="admin-sheet-btn" id="mob-admin-waterfall">
+          <span class="admin-sheet-btn-icon">🌊</span>
+          <span>Cascata</span>
+        </button>
+        <button class="admin-sheet-btn" id="mob-admin-shot">
+          <span class="admin-sheet-btn-icon">🥃</span>
+          <span>Round Shot</span>
+        </button>
+        <button class="admin-sheet-btn" id="mob-admin-truth">
+          <span class="admin-sheet-btn-icon">💣</span>
+          <span>Domanda</span>
+        </button>
+        <button class="admin-sheet-btn" id="mob-admin-teleport">
+          <span class="admin-sheet-btn-icon">♟️</span>
+          <span>Sposta Oca</span>
+        </button>
+        <button class="admin-sheet-btn" id="mob-admin-reset">
+          <span class="admin-sheet-btn-icon">🔄</span>
+          <span>Reset</span>
+        </button>
+        <button class="admin-sheet-btn" id="mob-admin-qr">
+          <span class="admin-sheet-btn-icon">📱</span>
+          <span>QR Stanza</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE PLAYERS DRAWER (Pannello a scomparsa con dettagli delle oche) -->
+  <div id="mobile-players-drawer" class="mobile-players-drawer">
+    <div class="mobile-drawer-backdrop" id="mobile-drawer-backdrop"></div>
+    <div class="mobile-drawer-panel">
+      <div class="admin-sheet-handle"></div>
+      <div class="admin-sheet-title">🦆 GIOCATORI AL TAVOLO</div>
+      <div id="mobile-drawer-players-list" class="mobile-drawer-list">
+        <!-- Popolato via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE EVENT TICKER (Riga singola in basso, espandibile) -->
+  <div id="mobile-event-ticker" class="mobile-event-ticker" title="Tap per espandere le cronache">
+    <span id="mobile-ticker-text">Benvenuti al Gioco dell'Oca 3D!</span>
+  </div>
+
+  <!-- SCRIPT LOGICO & MOTORE THREE.JS -->
+  <script src="game3d.js"></script>
+</body>
+</html>

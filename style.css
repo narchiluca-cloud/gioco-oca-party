@@ -1,0 +1,1361 @@
+/* ==========================================================================
+   IL NOBILE GIOCO DELL'OCA 3D — RUSTIC FANTASY STYLESHEET
+   Ispirato al tabellone in legno intagliato, miniature e atmosfera da taverna.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Cinzel+Decorative:wght@700;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+:root {
+  /* Palette Ispirata al Tabellone dell'Immagine */
+  --wood-dark: #20120a;
+  --wood-frame: #3d2314;
+  --wood-light: #5a361e;
+  --wood-carve: #8b5329;
+  
+  --parchment-base: #f7ecd5;
+  --parchment-dark: #dfcaa6;
+  --parchment-border: #9c7b50;
+  --ink-primary: #23160c;
+  --ink-secondary: #583d28;
+
+  --gold-accent: #e5b342;
+  --gold-bright: #ffd966;
+  --gold-dark: #9e751b;
+
+  --pawn-red: #d13030;
+  --pawn-yellow: #f2b705;
+  --pawn-green: #388a44;
+  --pawn-blue: #2374ab;
+
+  --shadow-deep: 0 16px 36px rgba(0, 0, 0, 0.65);
+  --shadow-tactile: 0 5px 0 #1b0f07;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #120b07;
+  color: var(--ink-primary);
+  font-family: 'Plus+Jakarta+Sans', -apple-system, sans-serif;
+}
+
+/* Canvas 3D a tutto schermo */
+#webgl-canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* ==========================================================================
+   HUD & INTERFACCIA TAVOLO (OVERLAY)
+   ========================================================================== */
+#hud-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+/* Consente i click solo sugli elementi interattivi dell'HUD */
+.interactive {
+  pointer-events: auto;
+}
+
+/* BARRA SUPERIORE INTARSIATA IN LEGNO */
+.top-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(180deg, rgba(32, 18, 10, 0.94) 0%, rgba(20, 10, 5, 0.92) 100%);
+  border: 2px solid var(--gold-dark);
+  border-radius: 18px;
+  padding: 10px 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: radial-gradient(circle, var(--gold-bright) 0%, var(--gold-dark) 100%);
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.brand-title {
+  font-family: 'Cinzel Decorative', 'Cinzel', serif;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--gold-bright);
+  text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+}
+
+.brand-sub {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #dfcaa6;
+  text-transform: uppercase;
+}
+
+/* RACK GIOCATORI NELLA TOPBAR */
+.players-rack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-token-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 10, 5, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: #f7ecd5;
+  font-size: 0.8rem;
+  font-weight: 700;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.player-token-pill.active {
+  border-color: var(--gold-bright);
+  background: linear-gradient(135deg, rgba(80, 45, 20, 0.95), rgba(40, 20, 10, 0.95));
+  box-shadow: 0 0 16px rgba(229, 179, 66, 0.5), inset 0 0 8px rgba(229, 179, 66, 0.3);
+  transform: translateY(-2px) scale(1.05);
+}
+
+.pawn-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.pawn-dot.red { background-color: var(--pawn-red); }
+.pawn-dot.yellow { background-color: var(--pawn-yellow); }
+.pawn-dot.green { background-color: var(--pawn-green); }
+.pawn-dot.blue { background-color: var(--pawn-blue); }
+
+.tile-badge {
+  background: var(--gold-dark);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.drink-tally-badge {
+  background: rgba(180, 40, 40, 0.9);
+  color: #fff;
+  font-size: 0.68rem;
+  padding: 2px 5px;
+  border-radius: 6px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* TASTI CAOS & GOLIARDIA (BARRA RAPIDA SBRONZA) */
+.chaos-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chaos-btn {
+  background: linear-gradient(180deg, #942b2b 0%, #611818 100%);
+  border: 1px solid #e06060;
+  color: #fff;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #3a0e0e, 0 4px 8px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.chaos-btn:hover {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+
+.chaos-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #3a0e0e;
+}
+
+.chaos-btn.waterfall {
+  background: linear-gradient(180deg, #1d6996 0%, #0f3e5c 100%);
+  border-color: #5bb3e8;
+}
+
+.chaos-btn.spicy {
+  background: linear-gradient(180deg, #991e5e 0%, #5e0b35 100%);
+  border-color: #ff60ad;
+  box-shadow: 0 3px 0 #3b0621, 0 4px 10px rgba(255, 96, 173, 0.3);
+}
+
+.chaos-btn.spicy:hover {
+  filter: brightness(1.25);
+  box-shadow: 0 3px 0 #3b0621, 0 0 16px rgba(255, 96, 173, 0.6);
+}
+
+/* BADGE CATEGORIA SFIDA */
+.challenge-cat-badge {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.badge-shot { background: #b82828; color: #fff; border: 1px solid #ff7b7b; }
+.badge-drink { background: #d48b15; color: #fff; border: 1px solid #ffd27b; }
+.badge-truth { background: #256b9c; color: #fff; border: 1px solid #7bc3ff; }
+.badge-dare { background: #7b3894; color: #fff; border: 1px solid #d47bff; }
+.badge-waterfall { background: #138a8a; color: #fff; border: 1px solid #5effff; }
+.badge-rule { background: #2d8a4e; color: #fff; border: 1px solid #7bff9d; }
+
+/* BOTTONI MODALE ALCOLICA */
+.modal-actions-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.btn-drink-done {
+  flex: 2;
+  background: linear-gradient(180deg, #2e7a46 0%, #1a522c 100%);
+  border: 2px solid #5cdb83;
+  color: #ffffff;
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  font-weight: 900;
+  padding: 12px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #0d2e18, 0 6px 12px rgba(0,0,0,0.4);
+  transition: all 0.15s;
+}
+.btn-drink-done:hover { filter: brightness(1.15); transform: translateY(-1px); }
+.btn-drink-done:active { transform: translateY(3px); box-shadow: 0 1px 0 #0d2e18; }
+
+.btn-drink-chicken {
+  flex: 1;
+  background: linear-gradient(180deg, #9e2a2b 0%, #6b1718 100%);
+  border: 2px solid #e06365;
+  color: #ffffff;
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 12px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #3b0d0e;
+  transition: all 0.15s;
+}
+.btn-drink-chicken:hover { filter: brightness(1.15); }
+.btn-drink-chicken:active { transform: translateY(3px); box-shadow: 0 1px 0 #3b0d0e; }
+
+/* PULSANTI DI UTILITÀ (Camera, Suono, Regole) */
+.utility-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  background: linear-gradient(180deg, #442716 0%, #2b170c 100%);
+  border: 1px solid var(--gold-dark);
+  color: var(--gold-bright);
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 3px 0 #180c05, 0 4px 8px rgba(0,0,0,0.4);
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+}
+
+.icon-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #180c05;
+}
+
+/* ==========================================================================
+   PARTE INFERIORE: REGISTRO EVENTI & AREA DADO 3D
+   ========================================================================== */
+.bottom-controls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+/* PERGAMENA DELLE CRONACHE (LOG EVENTI) */
+.chronicles-parchment {
+  width: 380px;
+  max-width: 42vw;
+  background: linear-gradient(135deg, #f7ebd4 0%, #eddcc0 100%);
+  border: 3px double var(--parchment-border);
+  border-radius: 16px;
+  padding: 14px 18px;
+  box-shadow: var(--shadow-deep), inset 0 0 30px rgba(120, 80, 40, 0.15);
+  position: relative;
+}
+
+.chronicles-parchment::before {
+  content: "📜 LE CRONACHE DELLA TAVOLA";
+  display: block;
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--wood-carve);
+  border-bottom: 1px dashed var(--parchment-border);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.event-feed {
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--ink-primary);
+  line-height: 1.4;
+}
+
+.event-feed::-webkit-scrollbar {
+  width: 5px;
+}
+.event-feed::-webkit-scrollbar-thumb {
+  background: var(--parchment-border);
+  border-radius: 4px;
+}
+
+.event-entry {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.4);
+  border-left: 3px solid var(--gold-dark);
+  animation: fadeIn 0.3s ease;
+}
+
+.event-entry.special {
+  border-left-color: var(--pawn-red);
+  background: rgba(220, 50, 50, 0.08);
+  font-weight: 700;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* TRAY DEI DADI (IN LEGNO E CUOIO) */
+.dice-action-station {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(45, 25, 15, 0.95) 0%, rgba(25, 12, 6, 0.95) 100%);
+  border: 3px solid var(--gold-dark);
+  border-radius: 24px;
+  padding: 16px 24px;
+  box-shadow: var(--shadow-deep), inset 0 2px 6px rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+.turn-announcer {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--gold-bright);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.dice-tray-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+/* DADI VINTAGE */
+.wood-dice-box {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(145deg, #fcf6eb, #e4d3b8);
+  border: 2px solid #784725;
+  border-radius: 12px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5), inset 0 2px 2px #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: #23160c;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.wood-dice-box.rolling {
+  animation: diceWiggle 0.6s infinite ease-in-out;
+}
+
+@keyframes diceWiggle {
+  0% { transform: rotate(0deg) scale(1.05); }
+  25% { transform: rotate(18deg) scale(1.1); }
+  50% { transform: rotate(-18deg) scale(0.95); }
+  75% { transform: rotate(12deg) scale(1.08); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+/* TASTO TIRA I DADI INTAGLIATO */
+.btn-roll-dice {
+  background: linear-gradient(180deg, #b06225 0%, #7e3e10 100%);
+  border: 2px solid var(--gold-bright);
+  border-radius: 14px;
+  color: #ffffff;
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 12px 28px;
+  cursor: pointer;
+  box-shadow: var(--shadow-tactile), 0 8px 16px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.1s ease;
+}
+
+.btn-roll-dice:hover {
+  filter: brightness(1.15);
+  transform: translateY(-2px);
+}
+
+.btn-roll-dice:active {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #1b0f07;
+}
+
+.btn-roll-dice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* CONTROLLI VISTA TELECAMERA */
+.camera-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cam-btn {
+  background: rgba(32, 18, 10, 0.88);
+  border: 1px solid var(--gold-dark);
+  color: var(--gold-bright);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: all 0.2s;
+}
+
+.cam-btn:hover, .cam-btn.active {
+  background: var(--gold-dark);
+  color: #1a0f07;
+}
+
+/* ==========================================================================
+   MODALI: VITTORIA, REGOLE & DETTAGLIO CASELLA
+   ========================================================================== */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 4, 2, 0.82);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.modal-scrim.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-parchment-box {
+  max-width: 540px;
+  width: 100%;
+  background: linear-gradient(145deg, #f8efdf 0%, #e8d7bb 100%);
+  border: 6px double var(--parchment-border);
+  border-radius: 24px;
+  padding: 30px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  transform: scale(0.92);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-scrim.visible .modal-parchment-box {
+  transform: scale(1);
+}
+
+.modal-icon-badge {
+  font-size: 3.5rem;
+  margin-bottom: 10px;
+}
+
+.modal-heading {
+  font-family: 'Cinzel Decorative', 'Cinzel', serif;
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--wood-frame);
+  margin-bottom: 12px;
+}
+
+.modal-text {
+  font-size: 0.95rem;
+  color: var(--ink-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+/* ==========================================================================
+   STILI ADMIN & REGIA SEGRETA (GOD MODE)
+   Design coerente con il legno intagliato, ottone brunito e pergamena reale.
+   ========================================================================== */
+
+/* BARRA DI REGIA FLUTTUANTE DELL'ADMIN */
+.admin-god-bar {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(38, 20, 10, 0.98) 0%, rgba(18, 9, 4, 0.98) 100%);
+  border: 2px solid var(--gold-bright);
+  border-radius: 20px;
+  padding: 8px 18px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8), inset 0 1px 2px rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 60;
+  backdrop-filter: blur(10px);
+  animation: adminSlideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes adminSlideUp {
+  from { transform: translate(-50%, 40px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.admin-label-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--gold-bright);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px dashed var(--gold-dark);
+}
+
+.admin-pill-btn {
+  background: linear-gradient(180deg, #442615 0%, #29150b 100%);
+  border: 1px solid var(--gold-dark);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 2px 0 #120904;
+  transition: all 0.15s ease;
+}
+
+.admin-pill-btn:hover {
+  filter: brightness(1.2);
+  border-color: var(--gold-bright);
+}
+
+.admin-pill-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+/* INPUT IN STILE PERGAMENA PER NOME, PIN E PASSWORD */
+.parchment-input {
+  width: 100%;
+  background: #fbf5e8;
+  border: 2px solid var(--parchment-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-family: 'Plus+Jakarta+Sans', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  margin-bottom: 12px;
+  outline: none;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.parchment-input:focus {
+  border-color: var(--gold-dark);
+  box-shadow: 0 0 0 3px rgba(229, 179, 66, 0.35);
+}
+
+.parchment-input.pin-code {
+  font-family: 'Cinzel', serif;
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 8px 12px;
+}
+
+/* ==========================================================================
+   RESPONSIVITÀ PER SMARTPHONE E TABLET (< 860px)
+   L'interfaccia Desktop resta IDENTICA. Su mobile si trasforma completamente.
+   ========================================================================== */
+@media (max-width: 860px) {
+
+  /* --- A. BARRA SUPERIORE: COMPATTA & MINIMAL (44px) --- */
+  #hud-layer {
+    padding: 0;
+  }
+
+  .top-banner {
+    padding: 6px 10px;
+    min-height: 44px;
+    max-height: 48px;
+    border-radius: 0;
+    border-top: none;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .brand-section {
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .brand-badge {
+    font-size: 1.2rem;
+    width: 28px;
+    height: 28px;
+  }
+
+  .brand-title {
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  /* Nascondi tutte le oche tranne quella attiva (via JS toggle) */
+  .players-rack {
+    display: none !important;
+  }
+
+  /* Nascondi bottoni caos dalla barra top */
+  .chaos-actions {
+    display: none !important;
+  }
+
+  /* Utility buttons: compatti */
+  .utility-btns {
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .utility-btns .icon-btn {
+    padding: 4px 6px;
+    font-size: 0.65rem;
+    gap: 2px;
+  }
+
+  .utility-btns .icon-btn span {
+    display: none;
+  }
+
+  /* --- B. CONTROLLI INFERIORI: ZONA POLLICE (Thumb-Friendly) --- */
+  .bottom-controls-row {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    pointer-events: none;
+  }
+
+  /* Cronache: nascoste (sostituite dal ticker mobile) */
+  .chronicles-parchment {
+    display: none !important;
+  }
+
+  /* Stazione dadi: compatta, ancorata in basso */
+  .dice-action-station {
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding: 10px 16px 14px;
+    pointer-events: all;
+    background: linear-gradient(180deg, rgba(32, 18, 10, 0.95) 0%, rgba(16, 8, 4, 0.98) 100%);
+    backdrop-filter: blur(12px);
+    border-bottom: none;
+  }
+
+  .turn-announcer {
+    font-size: 0.72rem;
+    margin-bottom: 4px;
+  }
+
+  .dice-tray-view {
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .wood-dice-box {
+    width: 42px;
+    height: 42px;
+    font-size: 1.5rem;
+  }
+
+  #btn-roll-dice {
+    padding: 12px 24px;
+    font-size: 1.1rem;
+    min-height: 48px;
+    border-radius: 14px;
+  }
+
+  /* Nascondi hint barra spaziatrice su mobile */
+  .dice-action-station > div:last-of-type {
+    display: none;
+  }
+
+  /* Camera dock: compatto */
+  .camera-dock {
+    display: none !important;
+  }
+
+  /* --- D. MODALI SFIDE: Bottom Sheet Mobile --- */
+  .modal-scrim {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .modal-parchment-box {
+    max-width: 100% !important;
+    width: 100% !important;
+    border-radius: 20px 20px 0 0 !important;
+    padding: 20px 18px 28px !important;
+    max-height: 85vh;
+    overflow-y: auto;
+    animation: mobileSheetUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  @keyframes mobileSheetUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .modal-heading {
+    font-size: 1.2rem !important;
+  }
+
+  #challenge-instruction-box {
+    font-size: 1rem !important;
+    padding: 14px !important;
+    line-height: 1.6 !important;
+  }
+
+  .modal-actions-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .btn-drink-done, .btn-drink-chicken {
+    min-height: 52px;
+    font-size: 1.05rem;
+    border-radius: 14px;
+  }
+
+  /* --- E. BARRA ADMIN DESKTOP: Nascosta su mobile (sostituita dal FAB) --- */
+  .admin-god-bar {
+    display: none !important;
+  }
+
+}
+
+/* --- MOBILE: FAB ADMIN (Pulsante galleggiante circolare) --- */
+.admin-fab-mobile {
+  display: none;
+  position: fixed;
+  bottom: 110px;
+  right: 14px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3d2314 0%, #1b0d06 100%);
+  border: 2px solid var(--gold-bright);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 55;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 14px rgba(255, 217, 102, 0.25);
+  animation: fabPulse 2.5s infinite ease-in-out;
+  transition: transform 0.2s ease;
+}
+
+.admin-fab-mobile:active {
+  transform: scale(0.9);
+}
+
+@keyframes fabPulse {
+  0%, 100% { box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 14px rgba(255,217,102,0.25); }
+  50% { box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 24px rgba(255,217,102,0.5); }
+}
+
+/* --- MOBILE: ADMIN BOTTOM SHEET (Cassetto dal basso con griglia) --- */
+.admin-sheet-mobile {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.admin-sheet-mobile.open {
+  display: flex;
+}
+
+.admin-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.admin-sheet-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(145deg, #f8efdf 0%, #e4d1aa 100%);
+  border-radius: 20px 20px 0 0;
+  padding: 10px 18px 28px;
+  animation: mobileSheetUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.admin-sheet-handle {
+  width: 38px;
+  height: 4px;
+  background: var(--parchment-border);
+  border-radius: 2px;
+  margin: 0 auto 10px;
+}
+
+.admin-sheet-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: var(--wood-frame);
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.admin-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.admin-sheet-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(180deg, #3d2314 0%, #221006 100%);
+  border: 1.5px solid var(--gold-dark);
+  border-radius: 14px;
+  padding: 14px 8px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-sheet-btn:active {
+  transform: scale(0.93);
+  border-color: var(--gold-bright);
+}
+
+.admin-sheet-btn-icon {
+  font-size: 1.5rem;
+}
+
+/* --- MOBILE: PLAYERS DRAWER (Pannello giocatori a scomparsa) --- */
+.mobile-players-drawer {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+}
+
+.mobile-players-drawer.open {
+  display: flex;
+}
+
+.mobile-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  animation: fadeIn 0.2s ease;
+}
+
+.mobile-drawer-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(145deg, #f8efdf 0%, #e4d1aa 100%);
+  border-radius: 20px 20px 0 0;
+  padding: 10px 18px 28px;
+  animation: mobileSheetUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-drawer-player-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1.5px solid var(--parchment-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.mobile-drawer-player-row.is-turn {
+  border-color: var(--gold-bright);
+  background: rgba(255, 217, 102, 0.18);
+}
+
+.mobile-drawer-pawn-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mobile-drawer-player-name {
+  flex: 1;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--ink-primary);
+}
+
+.mobile-drawer-player-info {
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  font-weight: 600;
+  text-align: right;
+}
+
+/* --- MOBILE: EVENT TICKER (Riga singola in basso) --- */
+.mobile-event-ticker {
+  display: none;
+  position: fixed;
+  bottom: 92px;
+  left: 8px;
+  right: 8px;
+  background: rgba(32, 18, 10, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--gold-dark);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--parchment-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 25;
+  pointer-events: all;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-event-ticker.expanded {
+  white-space: normal;
+  max-height: 45vh;
+  overflow-y: auto;
+  bottom: 92px;
+  border-radius: 14px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+/* Show mobile-only elements on small screens */
+@media (max-width: 860px) {
+  .mobile-event-ticker {
+    display: block;
+  }
+}
+
+/* ==========================================================================
+   GATEWAY INIZIALE TAVERNA (WELCOME SCREEN)
+   Copre interamente la mappa 3D all'avvio: visualizza solo la box d'ingresso
+   ========================================================================== */
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 35%, rgba(45, 24, 12, 0.97) 0%, rgba(18, 9, 4, 0.99) 100%);
+  backdrop-filter: blur(10px);
+  padding: 16px;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s ease, visibility 0.5s;
+}
+
+.welcome-screen.hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.03);
+  pointer-events: none;
+}
+
+.welcome-parchment-box {
+  width: 100%;
+  max-width: 450px;
+  background: linear-gradient(145deg, #fbf5e8 0%, #ecd9b9 100%);
+  border: 6px double var(--parchment-border);
+  border-radius: 24px;
+  padding: 28px 24px;
+  text-align: center;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), inset 0 0 25px rgba(180, 140, 80, 0.18);
+  position: relative;
+  animation: welcomePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes welcomePop {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.welcome-header {
+  margin-bottom: 18px;
+}
+
+.welcome-crest {
+  font-size: 2.8rem;
+  line-height: 1;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.25));
+}
+
+.welcome-title {
+  font-family: 'Cinzel Decorative', 'Cinzel', serif;
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: var(--wood-frame);
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
+}
+
+.welcome-tagline {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--gold-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 4px;
+}
+
+.welcome-field-group {
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.welcome-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--wood-carve);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.label-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--gold-dark);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 900;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.welcome-btn-primary {
+  width: 100%;
+  font-size: 1.05rem;
+  padding: 13px 20px;
+  margin-top: 4px;
+  box-shadow: 0 6px 18px rgba(184, 115, 51, 0.45);
+}
+
+.welcome-divider {
+  margin: 18px 0 14px 0;
+  color: var(--gold-dark);
+  font-size: 0.82rem;
+  letter-spacing: 0.25em;
+  opacity: 0.75;
+}
+
+/* IL DESIGN SPECIFICO PER L'ADMIN */
+.admin-entry-card {
+  background: linear-gradient(135deg, #381d0d 0%, #221006 100%);
+  border: 2px solid var(--gold-dark);
+  border-radius: 14px;
+  padding: 11px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-entry-card:hover {
+  border-color: var(--gold-bright);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(229, 179, 66, 0.3);
+}
+
+.admin-entry-card:active {
+  transform: translateY(0);
+}
+
+.admin-card-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(229, 179, 66, 0.15);
+  border: 1px solid rgba(229, 179, 66, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.admin-card-info {
+  flex: 1;
+  text-align: left;
+  margin: 0 12px;
+}
+
+.admin-card-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--gold-bright);
+  display: block;
+  letter-spacing: 0.04em;
+}
+
+.admin-card-sub {
+  font-size: 0.72rem;
+  color: #dfc8b4;
+  font-weight: 500;
+  display: block;
+}
+
+.admin-card-arrow-box {
+  color: var(--gold-bright);
+  font-size: 1.15rem;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.admin-entry-card:hover .admin-card-arrow-box {
+  transform: translateX(4px);
+}
+
+.welcome-offline-box {
+  margin-top: 14px;
+}
+
+.welcome-link-btn {
+  background: none;
+  border: none;
+  font-size: 0.76rem;
+  color: var(--ink-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.welcome-link-btn:hover {
+  color: var(--wood-frame);
+}
+
+.welcome-qr-detected {
+  background: rgba(46, 122, 70, 0.14);
+  border: 1px solid #2e7a46;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #1e5a32;
+  margin-top: 6px;
+  text-align: center;
+}
+
+.admin-auth-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.admin-auth-badge {
+  display: inline-block;
+  background: var(--gold-dark);
+  color: #fff;
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  padding: 3px 10px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+
+.admin-auth-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.25rem;
+  color: var(--wood-frame);
+  margin: 2px 0 6px 0;
+}
+
+.admin-auth-desc {
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.welcome-btn-admin-submit {
+  width: 100%;
+  background: linear-gradient(180deg, #2e7a46, #1a522c);
+  border-color: #5cdb83;
+  font-size: 0.95rem;
+  padding: 13px 20px;
+  margin-top: 4px;
+}
