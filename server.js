@@ -349,7 +349,8 @@ server.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`   🪿 IL NOBILE GIOCO DELL'OCA - SERVER ATTIVO!`);
   console.log(`   Porta: ${PORT}`);
-  console.log(`   Admin Password: ${ADMIN_MASTER_PASSWORD ? '[configurata]' : '[NON IMPOSTATA]'});
+ const adminStatus = ADMIN_MASTER_PASSWORD ? '[configurata]' : '[NON IMPOSTATA]';
+console.log('   Admin Password: ' + adminStatus);
   console.log(`   Apri nel browser: http://localhost:${PORT}`);
   console.log(`=======================================================`);
 });
