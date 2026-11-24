@@ -1124,6 +1124,11 @@ function triggerRollTurn() {
   if (isMovingPawn || isRollingDice) return;
 
   const player = PLAYERS[currentPlayerIdx];
+  if (!player) {
+    logEvent("Attendi che almeno un giocatore entri nella stanza prima di lanciare i dadi.");
+    return;
+  }
+
   const btnRoll = document.getElementById('btn-roll-dice');
   btnRoll.disabled = true;
 
@@ -1384,9 +1389,24 @@ function advanceToNextPlayer() {
 // AGGIORNAMENTO HUD & CRONACHE
 // ============================================================================
 function updateTurnHUD() {
-  const curr = PLAYERS[currentPlayerIdx];
   const turnAnnouncer = document.getElementById('turn-announcer-text');
-  turnAnnouncer.innerHTML = `TURNO DI <span style="color:${curr.hex}; font-weight:900;">${curr.name.toUpperCase()}</span>`;
+  if (!turnAnnouncer) return;
+
+  const curr = PLAYERS[currentPlayerIdx];
+  if (!curr) {
+    // In multiplayer la stanza può essere ancora vuota durante la schermata iniziale.
+    turnAnnouncer.textContent = 'IN ATTESA DI GIOCATORI...';
+    document.querySelectorAll('.player-token-pill').forEach(pill => pill.classList.remove('active'));
+    return;
+  }
+
+  // textContent + nodi DOM: nessuna interpretazione di HTML nel nome del giocatore.
+  turnAnnouncer.textContent = 'TURNO DI ';
+  const nameSpan = document.createElement('span');
+  nameSpan.style.color = curr.hex;
+  nameSpan.style.fontWeight = '900';
+  nameSpan.textContent = curr.name.toUpperCase();
+  turnAnnouncer.appendChild(nameSpan);
 
   // Aggiorna classe attiva sui pill dei giocatori
   document.querySelectorAll('.player-token-pill').forEach((pill, idx) => {
@@ -1722,7 +1742,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
       localStorage.setItem('oca_player_name', name);
       localPlayerName = name;
-      PLAYERS[0].name = name;
+      // In multiplayer i giocatori arrivano con room_state_updated:
+      // non assumere che PLAYERS[0] esista già.
+      if (PLAYERS[0]) {
+        PLAYERS[0].name = name;
+        renderPlayersHUD();
+      }
       updateTurnHUD();
       updatePawnHUDPositions();
 
@@ -1809,7 +1834,11 @@ window.addEventListener('DOMContentLoaded', () => {
       const name = (document.getElementById('welcome-input-name').value || '').trim() || "Giocatore 1";
       localStorage.setItem('oca_player_name', name);
       localPlayerName = name;
+      if (PLAYERS.length === 0) {
+        initDefaultPlayersOffline();
+      }
       PLAYERS[0].name = name;
+      renderPlayersHUD();
       updateTurnHUD();
       updatePawnHUDPositions();
       dismissWelcomeScreen(() => {
