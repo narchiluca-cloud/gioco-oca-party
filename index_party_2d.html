@@ -699,7 +699,7 @@
 
       <!-- VIEW 2: ACCEDI COME ADMIN CON PASSWORD (Come richiesto!) -->
       <div id="view-admin-login" style="display: none;">
-        <input type="password" id="input-admin-password" class="form-input" placeholder="Master Password Admin (default: oca123)">
+        <input type="password" id="input-admin-password" class="form-input" placeholder="Master Password Admin (configurata su Render)">
         <input type="text" id="input-admin-room-name" class="form-input" placeholder="Nome della Serata (es. Festa da Luca)">
 
         <button id="btn-submit-admin" class="tactile-btn" style="background: var(--accent-green); margin-bottom: 12px;">
@@ -1474,7 +1474,7 @@
         });
       } else {
         // Fallback admin locale
-        if (pass === "oca123" || pass.length >= 3) {
+        if (pass.length >= 3) {
           isAdmin = true;
           adminFloatingBar.style.display = 'flex';
           modalLobby.classList.add('hidden');

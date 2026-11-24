@@ -16,6 +16,17 @@ let boardGroup, scenicsGroup, tilesGroup, pawnsGroup, diceGroup;
 let isMovingPawn = false;
 let isRollingDice = false;
 
+// --- EFFETTI VISIVI TEMPORANEI & LUCI DINAMICHE ---
+// La PointLight del camino viene animata nel render loop; gli effetti
+// particellari sono gestiti in un array e liberati appena terminano.
+let fireplaceLight = null;
+// Intensità di riposo del focolare: la modulazione avviene una sola volta per frame.
+const FIREPLACE_BASE_INTENSITY = 1.15;
+let fireplaceFlicker = 1; // random-walk liscio per i guizzi irregolari
+let lastFrameMs = performance.now();
+const TRANSIENT_EFFECTS = [];
+let sparkleTexture = null;
+
 // Tracciato delle 64 posizioni 3D (Casella 0 = Molo Partenza, 1..63)
 const TILE_DATA = [];
 const TILE_MESHES = [];
@@ -64,6 +75,9 @@ const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 function playSound(type) {
   if (!soundEnabled || !audioCtx) return;
+  // I browser tengono l'AudioContext sospeso finché non arriva un gesto utente:
+  // il resume evita il primo effetto "muto" dopo il click sul pulsante.
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   const now = audioCtx.currentTime;
 
   if (type === 'dice') {
@@ -129,6 +143,19 @@ function playSound(type) {
         osc.stop(audioCtx.currentTime + 0.12);
       }, i * 110);
     }
+  } else if (type === 'trap') {
+    // Colpo grave e discendente per le caselle trappola (Pozzo, Prigione, Scheletro).
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(55, now + 0.45);
+    gain.gain.setValueAtTime(0.16, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(now + 0.5);
   } else if (type === 'chicken') {
     // Verso del pollo per chi rifiuta la penitenza
     const osc = audioCtx.createOscillator();
@@ -270,12 +297,19 @@ function initThreeScene() {
   // Renderer con ombre soffuse e ACES Tonemapping
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Su mobile limitiamo il pixel ratio: più fluidità, meno calore sulla GPU.
+  const maxPixelRatio = window.innerWidth < 860 ? 1.5 : 2;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxPixelRatio));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // ombre morbide, niente scalettature
+  renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.02;
   container.appendChild(renderer.domElement);
+
+  // Riflessi PBR artigianali: environment map procedurale filtrata in PMREM.
+  // Una sola generazione all'avvio: nessun costo per frame, zero asset esterni.
+  scene.environment = createEnvironmentMap();
 
   // OrbitControls
   controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -309,6 +343,7 @@ function initThreeScene() {
   createScenicsCastle();
   createScenicsBridge();
   createScenicsVillage();
+  createTableTorches();
   create3DGeesePawns();
   create3DDice();
 
@@ -319,50 +354,322 @@ function initThreeScene() {
   animate();
 }
 
-// LUCI D'AMBIENTE & FOCOLARE
+// ============================================================================
+// LUCI DELLA TAVERNA — solo fuoco: niente luce fredda dall'alto.
+// ----------------------------------------------------------------------------
+// La vecchia direzionale zenitale colpiva il piano di taglio e, sommata ad
+// ambient+hemi+fill, portava l'illuminazione a ~2.5x l'albedo: legno e prato
+// viravano al bianco slavato. Ora illuminano 4 torce ai bordi del tavolo
+// (SpotLight con ombre) + il focolare: luce radente, calda, con chiaroscuro vero.
+// ============================================================================
 function setupLighting() {
-  // Luce ambiente calda
-  const ambientLight = new THREE.AmbientLight(0xffe6cb, 0.65);
+  // Fill minimo per non lasciare nero assoluto le zone d'ombra (caldo, non azzurro).
+  const ambientLight = new THREE.AmbientLight(0xffd9ad, 0.15);
   scene.add(ambientLight);
+  const hemiLight = new THREE.HemisphereLight(0xd9c3a6, 0x1d0f07, 0.10);
+  scene.add(hemiLight);
 
-  // Lampadario centrale / Candele superiori
-  const mainDirLight = new THREE.DirectionalLight(0xfff5e0, 1.1);
-  mainDirLight.position.set(20, 60, 30);
-  mainDirLight.castShadow = true;
-  mainDirLight.shadow.mapSize.width = 2048;
-  mainDirLight.shadow.mapSize.height = 2048;
-  mainDirLight.shadow.camera.near = 10;
-  mainDirLight.shadow.camera.far = 140;
-  const d = 45;
-  mainDirLight.shadow.camera.left = -d;
-  mainDirLight.shadow.camera.right = d;
-  mainDirLight.shadow.camera.top = d;
-  mainDirLight.shadow.camera.bottom = -d;
-  mainDirLight.shadow.bias = -0.0005;
-  scene.add(mainDirLight);
-
-  // Luce calda proveniente dal camino sullo sfondo (come nell'immagine)
-  const fireplaceLight = new THREE.PointLight(0xff7722, 2.0, 120);
+  // Focolare della taverna: bagliore d'angolo, animato in animate().
+  // Niente shadow map: una PointLight con ombre costa 6 render pass.
+  fireplaceLight = new THREE.PointLight(0xff7a2f, FIREPLACE_BASE_INTENSITY, 110, 1.6);
   fireplaceLight.position.set(-45, 18, -40);
-  fireplaceLight.castShadow = true;
+  fireplaceLight.castShadow = false;
   scene.add(fireplaceLight);
+}
 
-  // Riflesso freddo dal lato finestra
-  const windowFillLight = new THREE.DirectionalLight(0x7ea8c9, 0.35);
-  windowFillLight.position.set(-30, 25, 40);
-  scene.add(windowFillLight);
+// ============================================================================
+// QUATTRO TORCE AI BORDI DEL TAVOLO (luce principale, tema taverna)
+// ============================================================================
+const TORCHES = [];
+
+// Posizione della torcia + punto del tabellone che illumina (il suo quadrante).
+const TORCH_LAYOUT = [
+  { x: -62, z: -42, aimX: -17, aimZ: -11 },
+  { x: 62, z: -42, aimX: 17, aimZ: -11 },
+  { x: -62, z: 42, aimX: -17, aimZ: 11 },
+  { x: 62, z: 42, aimX: 17, aimZ: 11 }
+];
+
+function createTableTorches() {
+  const TABLE_TOP_Y = -0.1; // piano del tavolo (Box 160x4 centrata a y=-2.1)
+  const FLAME_Y = 14.6;     // altezza della fiamma sopra il piano
+  // Su mobile shadow map più piccole: 4 torce = 4 passaggi di profondità per frame.
+  const shadowSize = window.innerWidth < 860 ? 512 : 1024;
+
+  TORCHES.length = 0;
+
+  // Materiali e geometrie condivisi: 4 torce, una sola allocazione per tipo.
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a231f, roughness: 0.5, metalness: 0.62, envMapIntensity: 0.9 });
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x4a2a13, roughness: 0.86, metalness: 0.02 });
+  const coalMat = new THREE.MeshStandardMaterial({ color: 0x2a1206, emissive: 0xff5a12, emissiveIntensity: 0.85, roughness: 0.95 });
+  const glowTexture = getSparkleTexture();
+
+  // Proporzioni da torcia da taverna: fusto massiccio, braciere largo, fiamma alta.
+  const baseGeo = new THREE.CylinderGeometry(1.15, 1.55, 0.55, 10);
+  const poleGeo = new THREE.CylinderGeometry(0.44, 0.58, 11.0, 8);
+  const ringGeo = new THREE.TorusGeometry(0.62, 0.1, 5, 12);
+  const cupGeo = new THREE.CylinderGeometry(1.9, 0.75, 1.7, 10);
+  const coalGeo = new THREE.CylinderGeometry(1.6, 1.6, 0.25, 10);
+  const flameGeo = new THREE.ConeGeometry(1.0, 3.4, 8);
+  const coreGeo = new THREE.ConeGeometry(0.5, 2.1, 8);
+
+  TORCH_LAYOUT.forEach((cfg, idx) => {
+    const torchGroup = new THREE.Group();
+    torchGroup.position.set(cfg.x, TABLE_TOP_Y, cfg.z);
+
+    // 1. Piastra e fusto in ferro battuto
+    const base = new THREE.Mesh(baseGeo, ironMat);
+    base.position.y = 0.27;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    torchGroup.add(base);
+
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    pole.position.y = 6.05;
+    pole.castShadow = true;
+    torchGroup.add(pole);
+
+    // 2. Anelli di rinforzo
+    [3.2, 8.6].forEach((ry) => {
+      const ring = new THREE.Mesh(ringGeo, ironMat);
+      ring.position.y = ry;
+      ring.rotation.x = Math.PI / 2;
+      ring.castShadow = true;
+      torchGroup.add(ring);
+    });
+
+    // 3. Braciere e braci
+    const cup = new THREE.Mesh(cupGeo, ironMat);
+    cup.position.y = 12.4;
+    cup.castShadow = true;
+    torchGroup.add(cup);
+
+    const coals = new THREE.Mesh(coalGeo, coalMat);
+    coals.position.y = 12.75;
+    torchGroup.add(coals);
+
+    // 4. Fiamma: cono incandescente + nucleo chiaro. Materiali additivi:
+    //    la luce vera è la SpotLight qui sotto, questi sono solo apparenza.
+    const flame = new THREE.Mesh(flameGeo, new THREE.MeshBasicMaterial({
+      color: 0xff8a2a, transparent: true, opacity: 0.7,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    flame.position.y = 15.1;
+    torchGroup.add(flame);
+
+    const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({
+      color: 0xffe9a8, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    core.position.y = 14.75;
+    torchGroup.add(core);
+
+    // 5. Alone caldo: sprite additivo (1 draw call), non una luce.
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0xffa64d, transparent: true, opacity: 0.42,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    glow.position.y = FLAME_Y;
+    glow.scale.set(18, 18, 1);
+    torchGroup.add(glow);
+
+    scenicsGroup.add(torchGroup);
+
+    // 6. La luce: SpotLight dal braciere verso il quadrante del tabellone.
+    //    Cono ampio + penombra morbida = pozza calda, non un riflettore duro.
+    // Intensità bassa + caduta marcata (decay 2): con 4 coni sovrapposti la somma
+    // al centro resta ~1x l'albedo, mentre ai bordi ogni torcia crea la sua pozza.
+    const light = new THREE.SpotLight(0xffa14d, 0.95, 160, 1.05, 0.6, 1.9);
+    light.position.set(cfg.x, TABLE_TOP_Y + FLAME_Y, cfg.z);
+    light.target.position.set(cfg.aimX, 1.6, cfg.aimZ);
+    light.castShadow = true;
+    light.shadow.mapSize.set(shadowSize, shadowSize);
+    light.shadow.camera.near = 4;
+    light.shadow.camera.far = 150;
+    light.shadow.bias = -0.0009;
+    light.shadow.normalBias = 0.04;
+    scene.add(light);
+    scene.add(light.target);
+
+    TORCHES.push({
+      light,
+      flame,
+      core,
+      glow,
+      baseIntensity: light.intensity,
+      baseX: light.position.x,
+      baseZ: light.position.z,
+      phase: idx * 1.9 + 0.4,
+      flicker: 1
+    });
+  });
+}
+
+/**
+ * Animazione delle torce: intensità, posizione della luce e fiamma.
+ * Sinusoidi + random-walk smorzato per ogni torcia: guizzi irregolari ma
+ * nessuna allocazione per frame (importante per il garbage collector).
+ */
+function updateTorches(time) {
+  for (let i = 0; i < TORCHES.length; i++) {
+    const t = TORCHES[i];
+    t.flicker += (Math.random() - 0.5) * 0.07;
+    t.flicker = THREE.MathUtils.lerp(t.flicker, 1, 0.09);
+
+    const wave = 1
+      + Math.sin(time * 9.1 + t.phase) * 0.09
+      + Math.sin(time * 21.7 + t.phase * 2.3) * 0.045;
+    const energy = Math.max(0.62, wave * t.flicker);
+
+    t.light.intensity = t.baseIntensity * energy;
+    // Micro-spostamento della sorgente: le ombre respirano con la fiamma.
+    t.light.position.x = t.baseX + Math.sin(time * 4.7 + t.phase) * 0.3;
+    t.light.position.z = t.baseZ + Math.cos(time * 3.9 + t.phase * 1.3) * 0.3;
+
+    const stretch = 0.92 + energy * 0.2;
+    const width = 0.95 + (energy - 1) * 0.25;
+    t.flame.scale.set(width, stretch, width);
+    t.flame.rotation.y = Math.sin(time * 2.8 + t.phase) * 0.35;
+    t.core.scale.setScalar(0.9 + energy * 0.12);
+
+    t.glow.material.opacity = 0.28 + Math.max(0, energy - 0.75) * 0.34;
+    const glowSize = 17 + energy * 3.2;
+    t.glow.scale.set(glowSize, glowSize, 1);
+  }
+}
+
+/**
+ * Costruisce una environment map equirettangolare procedurale (travi scure,
+ * pareti calde, finestra fredda e bagliore del focolare) e la filtra in PMREM.
+ * Serve a dare riflessi credibili ai materiali PBR — legno laccato delle pedine,
+ * dadi in avorio, noce lucidato del tabellone — senza HDRI esterni.
+ */
+function createEnvironmentMap() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+
+  const walls = ctx.createLinearGradient(0, 0, 0, 128);
+  walls.addColorStop(0, '#2a1709');   // travi del soffitto
+  walls.addColorStop(0.42, '#7b5533');
+  walls.addColorStop(0.6, '#c2986a'); // pareti scaldate dalle candele
+  walls.addColorStop(1, '#1d1008');   // pavimento in ombra
+  ctx.fillStyle = walls;
+  ctx.fillRect(0, 0, 256, 128);
+
+  // Sorgente fredda (finestra): crea i riflessi lunghi sul legno lucido.
+  const windowGlow = ctx.createRadialGradient(202, 44, 2, 202, 44, 48);
+  windowGlow.addColorStop(0, 'rgba(206,232,255,0.9)');
+  windowGlow.addColorStop(1, 'rgba(206,232,255,0)');
+  ctx.fillStyle = windowGlow;
+  ctx.fillRect(0, 0, 256, 128);
+
+  // Sorgente calda (focolare).
+  const hearthGlow = ctx.createRadialGradient(54, 80, 2, 54, 80, 58);
+  hearthGlow.addColorStop(0, 'rgba(255,168,80,0.85)');
+  hearthGlow.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = hearthGlow;
+  ctx.fillRect(0, 0, 256, 128);
+
+  const equirect = new THREE.CanvasTexture(canvas);
+  equirect.mapping = THREE.EquirectangularReflectionMapping;
+  equirect.encoding = THREE.sRGBEncoding;
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const renderTarget = pmrem.fromEquirectangular(equirect);
+  pmrem.dispose();
+  equirect.dispose();
+  return renderTarget.texture;
+}
+
+// ============================================================================
+// TEXTURE PROCEDURALI IN LEGNO (zero asset esterni, una sola generazione)
+// ============================================================================
+function createProceduralWoodTexture(options = {}) {
+  const {
+    base = '#4b2c19',
+    dark = '#24130b',
+    light = '#8d5b32',
+    repeatX = 1,
+    repeatY = 1
+  } = options;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+
+  // Base calda con leggera variazione diagonale.
+  const bg = ctx.createLinearGradient(0, 0, 512, 256);
+  bg.addColorStop(0, base);
+  bg.addColorStop(0.48, dark);
+  bg.addColorStop(1, base);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Venature: curve deterministiche, niente rumore pesante ad ogni frame.
+  ctx.save();
+  ctx.globalAlpha = 0.24;
+  ctx.strokeStyle = light;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 68; i++) {
+    const y = (i / 68) * 256 + Math.sin(i * 2.17) * 5;
+    ctx.beginPath();
+    for (let x = 0; x <= 512; x += 16) {
+      const wave = Math.sin(x * 0.018 + i * 0.63) * 4 + Math.sin(x * 0.061 + i) * 1.3;
+      if (x === 0) ctx.moveTo(x, y + wave);
+      else ctx.lineTo(x, y + wave);
+    }
+    ctx.stroke();
+  }
+
+  // Nodi del legno: ellissi concentriche sui lati.
+  for (let k = 0; k < 3; k++) {
+    const cx = 90 + k * 165;
+    const cy = 78 + k * 52;
+    ctx.strokeStyle = dark;
+    ctx.globalAlpha = 0.34;
+    for (let n = 0; n < 4; n++) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 12 + n * 7, 5 + n * 3, k * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding; // il canvas è in sRGB
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+  return texture;
 }
 
 // ============================================================================
 // COSTRUZIONE TAVOLO E CORNICE IN LEGNO SCOLPITO
 // ============================================================================
 function createRusticTableAndBoard() {
-  // Piano del tavolo in massello di quercia
+  // Piano del tavolo in massello di quercia con venature procedurali.
   const tableGeo = new THREE.BoxGeometry(160, 4, 120);
+  const tableTexture = createProceduralWoodTexture({
+    base: '#392216',
+    dark: '#1b0e07',
+    light: '#6e4527',
+    repeatX: 5,
+    repeatY: 4
+  });
+  // Massello consumato: roughness alta e bump più marcato = legno "vissuto".
   const tableMat = new THREE.MeshStandardMaterial({
-    color: 0x22130a,
-    roughness: 0.85,
-    metalness: 0.05
+    map: tableTexture,
+    bumpMap: tableTexture,
+    bumpScale: 0.05,
+    color: 0xc09a72,
+    roughness: 0.8,
+    metalness: 0.02,
+    envMapIntensity: 0.35
   });
   const tableMesh = new THREE.Mesh(tableGeo, tableMat);
   tableMesh.position.y = -2.1;
@@ -371,10 +678,25 @@ function createRusticTableAndBoard() {
 
   // Il Tabellone del Gioco dell'Oca (Cornice lignea con bordo rialzato)
   const boardBaseGeo = new THREE.BoxGeometry(78, 2.5, 56);
-  const boardBaseMat = new THREE.MeshStandardMaterial({
-    color: 0x422614, // Noce intagliato
-    roughness: 0.75,
-    metalness: 0.1
+  const boardTexture = createProceduralWoodTexture({
+    base: '#4d2b18',
+    dark: '#29140b',
+    light: '#8a5831',
+    repeatX: 2,
+    repeatY: 2
+  });
+  // Noce lucidato a mano: clearcoat appena accennato (0.05). Con un clearcoat più
+  // alto la faccia piatta rifletteva un velo bianco verso la camera.
+  const boardBaseMat = new THREE.MeshPhysicalMaterial({
+    map: boardTexture,
+    bumpMap: boardTexture,
+    bumpScale: 0.03,
+    color: 0xd9b48d, // Noce intagliato, schiarito dal map
+    roughness: 0.7,
+    metalness: 0.03,
+    clearcoat: 0.05,
+    clearcoatRoughness: 0.6,
+    envMapIntensity: 0.45
   });
   const boardBase = new THREE.Mesh(boardBaseGeo, boardBaseMat);
   boardBase.position.y = 0.2;
@@ -386,7 +708,7 @@ function createRusticTableAndBoard() {
   const terrainGeo = new THREE.BoxGeometry(74, 0.4, 52);
   const terrainMat = new THREE.MeshStandardMaterial({
     color: 0x5b7a3e, // Verde prato valligiano
-    roughness: 0.9,
+    roughness: 0.92,
     metalness: 0.0
   });
   const terrain = new THREE.Mesh(terrainGeo, terrainMat);
@@ -519,6 +841,10 @@ function generateSpiralRing(startId, endId, rx, rz, yOffset) {
 // GENERAZIONE MESH E TEXTURE DELLE TESSERE SPIRALI
 // ============================================================================
 function createSpiralTilesMeshes() {
+  // Materiali laterali condivisi: 64 tessere non devono creare 384 materiali.
+  const tileSideMat = new THREE.MeshStandardMaterial({ color: 0x6e492d, roughness: 0.68, metalness: 0.08, envMapIntensity: 0.3 });
+  const tileBottomMat = new THREE.MeshStandardMaterial({ color: 0x2c180c, roughness: 0.92, metalness: 0.02, envMapIntensity: 0.1 });
+
   TILE_DATA.forEach((tile) => {
     // Dimensione casella
     const isCastle = tile.id === 63;
@@ -528,15 +854,25 @@ function createSpiralTilesMeshes() {
 
     const canvas = createTileTextureCanvas(tile);
     const texture = new THREE.CanvasTexture(canvas);
-    texture.anisotropy = 4;
+    texture.encoding = THREE.sRGBEncoding;
+    texture.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
 
     const materials = [
-      new THREE.MeshStandardMaterial({ color: 0x6e492d, roughness: 0.8 }), // DX
-      new THREE.MeshStandardMaterial({ color: 0x6e492d, roughness: 0.8 }), // SX
-      new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5, metalness: 0.05 }), // TOP
-      new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.9 }), // BOT
-      new THREE.MeshStandardMaterial({ color: 0x6e492d, roughness: 0.8 }), // FRONTE
-      new THREE.MeshStandardMaterial({ color: 0x6e492d, roughness: 0.8 })  // RETRO
+      tileSideMat, // DX
+      tileSideMat, // SX
+      new THREE.MeshStandardMaterial({
+        map: texture,
+        // Superficie della tessera poco riflettente: i numeri restano leggibili
+        // e non si crea il velo chiaro che appiattiva il tabellone.
+        roughness: 0.58,
+        metalness: 0.02,
+        envMapIntensity: 0.35,
+        emissive: new THREE.Color(0x000000),
+        emissiveIntensity: 0
+      }), // TOP
+      tileBottomMat, // BOT
+      tileSideMat, // FRONTE
+      tileSideMat  // RETRO
     ];
 
     const tileGeo = new THREE.BoxGeometry(w, h, d);
@@ -544,7 +880,9 @@ function createSpiralTilesMeshes() {
     tileMesh.position.set(tile.x, tile.y, tile.z);
     tileMesh.rotation.y = tile.rotY;
     tileMesh.receiveShadow = true;
-    tileMesh.castShadow = true;
+    // Le tessere NON proiettano ombre: sono piatte e, avendo 6 materiali ciascuna,
+    // costerebbero 384 draw call per ognuno dei 4 passaggi d'ombra delle torce.
+    tileMesh.castShadow = false;
     tileMesh.userData = { tileId: tile.id, tileInfo: tile };
 
     tilesGroup.add(tileMesh);
@@ -893,15 +1231,19 @@ function create3DGeesePawns() {
 function buildSculptedGooseModel(colorHex) {
   const goose = new THREE.Group();
 
-  // Materiale laccato lucido per il corpo in legno colorato (come giocattolo artigianale)
-  const bodyMat = new THREE.MeshStandardMaterial({
+  // Materiale laccato lucido per il corpo in legno colorato (come giocattolo artigianale).
+  // Il clearcoat aggiunge il riflesso "lacca" senza cambiare geometria o logica.
+  const bodyMat = new THREE.MeshPhysicalMaterial({
     color: colorHex,
-    roughness: 0.35,
-    metalness: 0.08
+    roughness: 0.28,
+    metalness: 0.06,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.22,
+    envMapIntensity: 1.15 // riflesso "lacca" ben visibile sulla miniatura
   });
-  const beakMat = new THREE.MeshStandardMaterial({ color: 0xff9900, roughness: 0.4 });
+  const beakMat = new THREE.MeshStandardMaterial({ color: 0xff9900, roughness: 0.3, metalness: 0.04 });
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  const baseMat = new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.6 });
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.48, metalness: 0.04 });
 
   // 1. Basamento rotondo intagliato
   const baseGeo = new THREE.CylinderGeometry(1.1, 1.25, 0.35, 16);
@@ -957,15 +1299,25 @@ function buildSculptedGooseModel(colorHex) {
   goose.add(eyeR);
 
   // Scala complessiva per le proporzioni perfette sulla tessera
+  goose.userData.baseScale = 0.85;
   goose.scale.set(0.85, 0.85, 0.85);
 
   return goose;
 }
 
 // Colloca visivamente la pedina sulla tessera target con piccolo offset se più pedine condividono la casella
-function placePawnOnTile(pawnIdx, tileId, animateHop = false, onDone = null) {
+function placePawnOnTile(pawnRef, tileId, animateHop = false, onDone = null) {
+  // Accetta sia l'indice della pedina sia l'id del giocatore (stringa Socket.io /
+  // sessione locale): prima la ricerca sull'array restituiva sempre undefined.
+  const pawnIdx = typeof pawnRef === 'number' ? pawnRef : PLAYERS.findIndex(p => p.id === pawnRef);
   const pawn = PAWN_MESHES[pawnIdx];
   const tile = TILE_DATA[tileId] || TILE_DATA[0];
+
+  // Pedina non ancora istanziata (stanza in caricamento): chiude la catena senza errori.
+  if (!pawn) {
+    if (onDone) onDone();
+    return;
+  }
 
   // Offset pedine multiple sulla stessa casella (supporta fino a 12 giocatori)
   const offsets = [
@@ -989,34 +1341,70 @@ function placePawnOnTile(pawnIdx, tileId, animateHop = false, onDone = null) {
     return;
   }
 
-  // Animazione Balzo Parabolico (Hop)
+  // Animazione Balzo Parabolico (Hop) con easing, inclinazione e squash di atterraggio.
   const startX = pawn.position.x;
   const startY = pawn.position.y;
   const startZ = pawn.position.z;
-  const duration = 220;
+  const startRotY = pawn.rotation.y;
+  const baseScale = pawn.userData.baseScale || 0.85;
+  const dx = targetX - startX;
+  const dz = targetZ - startZ;
+  const distance = Math.hypot(dx, dz);
+  const travelYaw = distance > 0.001 ? Math.atan2(dx, dz) : tile.rotY;
+  let yawDelta = travelYaw - startRotY;
+  yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta)); // percorso angolare più breve
+  // Il balzo dura 240ms: ~78% volo, il resto assestamento elastico a terra.
+  const duration = 240;
+  const travelPhase = 0.78;
   const startTime = performance.now();
 
   playSound('hop');
 
+  function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  // Si "siede" nella curva: inclinazione laterale proporzionale alla virata.
+  const lean = THREE.MathUtils.clamp(yawDelta / Math.PI, -1, 1) * 0.16;
+
   function hopStep(now) {
-    const elapsed = now - startTime;
-    const t = Math.min(1, elapsed / duration);
+    const rawT = Math.min(1, (now - startTime) / duration);
+    const flyT = Math.min(1, rawT / travelPhase);
+    const settleT = rawT > travelPhase ? (rawT - travelPhase) / (1 - travelPhase) : 0;
+    const moveT = easeInOutCubic(flyT);
 
-    // Parabola di salto
-    const arcHeight = 2.2;
-    const currentY = THREE.MathUtils.lerp(startY, targetY, t) + Math.sin(t * Math.PI) * arcHeight;
+    // Traiettoria parabolica: l'arco usa l'easing, quindi parte e plana morbido.
+    const arcHeight = 1.85 + Math.min(1.15, distance * 0.075);
+    const arc = Math.sin(moveT * Math.PI) * arcHeight;
 
-    pawn.position.x = THREE.MathUtils.lerp(startX, targetX, t);
-    pawn.position.y = currentY;
-    pawn.position.z = THREE.MathUtils.lerp(startZ, targetZ, t);
+    // Atterraggio: due rimbalzini smorzati che non scendono mai sotto la casella.
+    const landingBounce = settleT > 0
+      ? Math.abs(Math.sin(settleT * Math.PI * 2.2)) * 0.32 * (1 - settleT)
+      : 0;
 
-    // Rotazione verso il senso di marcia
-    pawn.rotation.y = THREE.MathUtils.lerp(pawn.rotation.y, tile.rotY, t);
+    pawn.position.x = THREE.MathUtils.lerp(startX, targetX, moveT);
+    pawn.position.y = THREE.MathUtils.lerp(startY, targetY, moveT) + arc + landingBounce;
+    pawn.position.z = THREE.MathUtils.lerp(startZ, targetZ, moveT);
 
-    if (t < 1) {
+    // La miniatura guarda dove vola, alza il becco e si inclina in curva.
+    pawn.rotation.y = startRotY + yawDelta * moveT;
+    pawn.rotation.x = -Math.sin(moveT * Math.PI) * 0.15;
+    pawn.rotation.z = lean * Math.sin(moveT * Math.PI);
+
+    // Squash & stretch: leggero allungamento in volo, compressione all'impatto.
+    const impact = settleT > 0 ? Math.sin(settleT * Math.PI * 1.6) * (1 - settleT) : 0;
+    const squashY = 1 - Math.max(0, impact) * 0.11;
+    const bulgeXZ = 1 + Math.max(0, impact) * 0.07;
+    pawn.scale.set(baseScale * bulgeXZ, baseScale * squashY, baseScale * bulgeXZ);
+
+    if (rawT < 1) {
       requestAnimationFrame(hopStep);
     } else {
       pawn.position.set(targetX, targetY, targetZ);
+      pawn.rotation.x = 0;
+      pawn.rotation.z = 0;
+      pawn.rotation.y = travelYaw;
+      pawn.scale.set(baseScale, baseScale, baseScale);
       if (onDone) onDone();
     }
   }
@@ -1074,47 +1462,327 @@ function createDiceMaterials() {
     if (num === 6) { drawDot(l, c); drawDot(r, c); }
 
     const texture = new THREE.CanvasTexture(canvas);
-    return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45 });
+    texture.encoding = THREE.sRGBEncoding;
+    texture.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+    return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.34, metalness: 0.035, envMapIntensity: 0.6 });
   });
 }
 
-// Rotolamento scenografico dei dadi 3D
+/**
+ * Restituisce l'orientamento che porta sulla faccia superiore il valore indicato.
+ * La mappatura segue l'ordine materiali di BoxGeometry:
+ * +X=1, -X=6, +Y=2, -Y=5, +Z=3, -Z=4.
+ */
+function getDiceRestRotation(value) {
+  switch (value) {
+    case 1: return { x: 0, z: Math.PI / 2 };      // +X in alto
+    case 2: return { x: 0, z: 0 };                // +Y in alto
+    case 3: return { x: -Math.PI / 2, z: 0 };     // +Z in alto
+    case 4: return { x: Math.PI / 2, z: 0 };      // -Z in alto
+    case 5: return { x: Math.PI, z: 0 };          // -Y in alto
+    case 6: return { x: 0, z: -Math.PI / 2 };     // -X in alto
+    default: return { x: 0, z: 0 };
+  }
+}
+
+/**
+ * Costruisce il quaternione finale del dado: orienta la faccia corretta verso
+ * l'alto e applica uno yaw casuale attorno all'asse mondiale Y.
+ */
+function buildDiceRestQuaternion(value, yaw) {
+  const rest = getDiceRestRotation(value);
+  const restQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rest.x, 0, rest.z, 'XYZ'));
+  const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  return restQuat.premultiply(yawQuat);
+}
+
+// Rotolamento scenografico dei dadi 3D con rimbalzo smorzato e atterraggio sul valore reale.
 function roll3DDiceAnimation(val1, val2, callback) {
   isRollingDice = true;
   playSound('dice');
 
   const startT = performance.now();
-  const duration = 750;
+  const duration = 980;
+  const start1 = diceMesh1.position.clone();
+  const start2 = diceMesh2.position.clone();
+  const end1 = new THREE.Vector3(-28.8, 1.4, 13.6);
+  const end2 = new THREE.Vector3(-23.7, 1.4, 15.4);
+
+  const targetQuat1 = buildDiceRestQuaternion(val1, Math.random() * Math.PI * 2);
+  const targetQuat2 = buildDiceRestQuaternion(val2, Math.random() * Math.PI * 2);
+  const settleQuat = new THREE.Quaternion();
+
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  const smoothStep = (t) => t * t * (3 - 2 * t);
 
   function tumbleStep(now) {
     const t = Math.min(1, (now - startT) / duration);
+    const damp = 1 - t;
 
-    // Rotazione casuale frenetica che si placa
-    const rotSpeed = (1 - t) * 0.45;
-    diceMesh1.rotation.x += rotSpeed * 3;
-    diceMesh1.rotation.y += rotSpeed * 2.5;
-    diceMesh1.rotation.z += rotSpeed * 1.8;
+    // Rotazione frenetica che rallenta.
+    diceMesh1.rotation.x += 0.42 * damp;
+    diceMesh1.rotation.y += 0.33 * damp;
+    diceMesh1.rotation.z += 0.26 * damp;
+    diceMesh2.rotation.x += 0.38 * damp;
+    diceMesh2.rotation.y += 0.45 * damp;
+    diceMesh2.rotation.z += 0.31 * damp;
 
-    diceMesh2.rotation.x += rotSpeed * 2.8;
-    diceMesh2.rotation.y += rotSpeed * 3.2;
-    diceMesh2.rotation.z += rotSpeed * 2.1;
+    // Rimbalzi multipli smorzati, non una singola parabola.
+    const bounce1 = Math.abs(Math.sin(t * Math.PI * 3.4)) * Math.pow(1 - t, 1.55) * 3.5;
+    const bounce2 = Math.abs(Math.sin(t * Math.PI * 3.05 + 0.7)) * Math.pow(1 - t, 1.55) * 3.1;
 
-    // Piccolo balzo in alto
-    const jump = Math.sin(t * Math.PI) * 2.5;
-    diceMesh1.position.y = 1.4 + jump;
-    diceMesh2.position.y = 1.4 + jump;
+    diceMesh1.position.x = THREE.MathUtils.lerp(start1.x, end1.x, easeOutCubic(t)) + Math.sin(t * Math.PI * 1.7) * 0.22 * damp;
+    diceMesh1.position.y = 1.4 + bounce1;
+    diceMesh1.position.z = THREE.MathUtils.lerp(start1.z, end1.z, easeOutCubic(t));
+    diceMesh2.position.x = THREE.MathUtils.lerp(start2.x, end2.x, easeOutCubic(t)) + Math.sin(t * Math.PI * 1.4 + 1.2) * 0.2 * damp;
+    diceMesh2.position.y = 1.4 + bounce2;
+    diceMesh2.position.z = THREE.MathUtils.lerp(start2.z, end2.z, easeOutCubic(t));
+
+    // Negli ultimi 38% del lancio allinea dolcemente la faccia estratta verso l'alto.
+    if (t > 0.62) {
+      const blend = smoothStep((t - 0.62) / 0.38);
+      settleQuat.setFromEuler(diceMesh1.rotation);
+      settleQuat.slerp(targetQuat1, blend);
+      diceMesh1.quaternion.copy(settleQuat);
+
+      settleQuat.setFromEuler(diceMesh2.rotation);
+      settleQuat.slerp(targetQuat2, blend);
+      diceMesh2.quaternion.copy(settleQuat);
+    }
 
     if (t < 1) {
       requestAnimationFrame(tumbleStep);
     } else {
-      diceMesh1.position.y = 1.4;
-      diceMesh2.position.y = 1.4;
+      diceMesh1.position.copy(end1);
+      diceMesh2.position.copy(end2);
+      diceMesh1.quaternion.copy(targetQuat1);
+      diceMesh2.quaternion.copy(targetQuat2);
+      // Ultimo "clack" di legno sul tavolo quando i dadi si fermano sul valore.
+      playSound('hop');
       isRollingDice = false;
       if (callback) callback();
     }
   }
 
   requestAnimationFrame(tumbleStep);
+}
+
+// ============================================================================
+// EFFETTI VISIVI: SCINTILLE 3D, ANELLI DI LUCE, CONFETTI
+// ============================================================================
+const TILE_FX_COLORS = {
+  goose: 0xffd966,
+  bridge: 0x8fd8ff,
+  inn: 0xffb347,
+  well: 0x63e6d2,
+  maze: 0xc08bff,
+  prison: 0xff8a5c,
+  death: 0xff5b5b,
+  castle: 0xffe066
+};
+
+function getSparkleTexture() {
+  if (sparkleTexture) return sparkleTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.22, 'rgba(255,242,190,0.95)');
+  gradient.addColorStop(0.52, 'rgba(255,196,80,0.38)');
+  gradient.addColorStop(1, 'rgba(255,196,80,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+  sparkleTexture = new THREE.CanvasTexture(canvas);
+  sparkleTexture.encoding = THREE.sRGBEncoding;
+  return sparkleTexture;
+}
+
+function spawnConfettiBurst(preset = 'tile') {
+  if (typeof confetti !== 'function') return;
+  const presets = {
+    tile: {
+      particleCount: 45,
+      spread: 70,
+      startVelocity: 28,
+      gravity: 0.9,
+      scalar: 0.75,
+      ticks: 120,
+      colors: ['#ffd966', '#f7ecd5', '#e5b342']
+    },
+    waterfall: {
+      particleCount: 130,
+      spread: 110,
+      startVelocity: 42,
+      gravity: 0.95,
+      scalar: 0.95,
+      ticks: 170,
+      origin: { y: 0.62 },
+      colors: ['#8fd8ff', '#5bb3e8', '#f7ecd5', '#ffd966']
+    },
+    goose: {
+      particleCount: 26,
+      spread: 62,
+      startVelocity: 24,
+      gravity: 0.85,
+      scalar: 0.7,
+      ticks: 105,
+      colors: ['#ffd966', '#fff6d5', '#e5b342']
+    },
+    victory: {
+      particleCount: 260,
+      spread: 125,
+      startVelocity: 46,
+      gravity: 0.9,
+      scalar: 1.05,
+      ticks: 210,
+      origin: { y: 0.58 },
+      colors: ['#ffd966', '#ffb347', '#f7ecd5', '#e5b342', '#d13030']
+    }
+  };
+  const options = presets[preset] || presets.tile;
+  try {
+    confetti(options);
+  } catch (err) {
+    console.warn('Confetti non disponibile:', err);
+  }
+}
+
+function spawnTileBurst(tile, type) {
+  const color = TILE_FX_COLORS[type] || 0xffd966;
+  const isCastle = type === 'castle';
+
+  // Coriandoli dorati leggeri sul volo dell'Oca: le scintille 3D restano l'effetto
+  // principale, il confetti aggiunge solo un tocco di carta velina.
+  if (type === 'goose') spawnConfettiBurst('goose');
+  const count = isCastle ? 34 : 20;
+  const positions = new Float32Array(count * 3);
+  const velocities = [];
+
+  for (let i = 0; i < count; i++) {
+    // Parte da un piccolo disco attorno al centro della tessera.
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.random() * 0.45;
+    positions[i * 3] = Math.cos(angle) * radius;
+    positions[i * 3 + 1] = Math.random() * 0.25;
+    positions[i * 3 + 2] = Math.sin(angle) * radius;
+
+    const speed = 1.1 + Math.random() * (isCastle ? 3.4 : 2.2);
+    velocities.push({
+      x: Math.cos(angle) * speed,
+      y: 2.1 + Math.random() * (isCastle ? 3.8 : 2.8),
+      z: Math.sin(angle) * speed
+    });
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    color,
+    size: isCastle ? 1.0 : 0.74,
+    map: getSparkleTexture(),
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+  const points = new THREE.Points(geometry, material);
+  points.position.set(tile.x, tile.y + 0.32, tile.z);
+  points.frustumCulled = false;
+  scene.add(points);
+  TRANSIENT_EFFECTS.push({
+    kind: 'sparkles',
+    object: points,
+    velocities,
+    age: 0,
+    duration: isCastle ? 1.35 : 0.95,
+    baseSize: material.size
+  });
+
+  // Anello di luce a terra.
+  const ringGeo = new THREE.RingGeometry(0.82, 1.08, 36);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(tile.x, tile.y + 0.27, tile.z);
+  scene.add(ring);
+  TRANSIENT_EFFECTS.push({ kind: 'ring', object: ring, age: 0, duration: 0.72 });
+
+  // Pulse emissivo sulla faccia superiore della tessera.
+  const tileMesh = TILE_MESHES[tile.id];
+  const topMaterial = tileMesh && Array.isArray(tileMesh.material) ? tileMesh.material[2] : null;
+  if (topMaterial) {
+    topMaterial.emissive.setHex(color);
+    topMaterial.emissiveIntensity = 0.8;
+    TRANSIENT_EFFECTS.push({ kind: 'tileGlow', material: topMaterial, age: 0, duration: 0.62 });
+  }
+}
+
+function playLandingVisualFX(pos) {
+  const tile = TILE_DATA[pos];
+  if (!tile) return;
+  if (tile.type === 'goose' || tile.type === 'bridge' || tile.type === 'inn' ||
+      tile.type === 'well' || tile.type === 'maze' || tile.type === 'prison' ||
+      tile.type === 'death' || tile.type === 'castle') {
+    spawnTileBurst(tile, tile.type);
+  }
+}
+
+function updateTransientEffects(delta) {
+  const dt = Math.min(delta, 0.05);
+  for (let i = TRANSIENT_EFFECTS.length - 1; i >= 0; i--) {
+    const fx = TRANSIENT_EFFECTS[i];
+    fx.age += dt;
+    const progress = Math.min(1, fx.age / fx.duration);
+
+    if (fx.kind === 'sparkles') {
+      const array = fx.object.geometry.attributes.position.array;
+      for (let j = 0; j < fx.velocities.length; j++) {
+        const v = fx.velocities[j];
+        v.y -= 7.5 * dt;
+        const drag = Math.pow(0.985, dt * 60);
+        v.x *= drag;
+        v.z *= drag;
+        array[j * 3] += v.x * dt;
+        array[j * 3 + 1] += v.y * dt;
+        array[j * 3 + 2] += v.z * dt;
+      }
+      fx.object.geometry.attributes.position.needsUpdate = true;
+      fx.object.material.opacity = 1 - progress;
+      fx.object.material.size = fx.baseSize * (1 - progress * 0.3);
+    } else if (fx.kind === 'ring') {
+      const scale = 1 + progress * 2.4;
+      fx.object.scale.set(scale, scale, scale);
+      fx.object.material.opacity = (1 - progress) * 0.85;
+    } else if (fx.kind === 'tileGlow') {
+      fx.material.emissiveIntensity = (1 - progress) * 0.8;
+    }
+
+    if (progress >= 1) {
+      if (fx.kind === 'sparkles') {
+        scene.remove(fx.object);
+        fx.object.geometry.dispose();
+        fx.object.material.dispose();
+      } else if (fx.kind === 'ring') {
+        scene.remove(fx.object);
+        fx.object.geometry.dispose();
+        fx.object.material.dispose();
+      } else if (fx.kind === 'tileGlow') {
+        fx.material.emissiveIntensity = 0;
+        fx.material.emissive.setHex(0x000000);
+      }
+      TRANSIENT_EFFECTS.splice(i, 1);
+    }
+  }
 }
 
 // ============================================================================
@@ -1275,6 +1943,9 @@ function openDrinkingModal(player, challenge, onDone) {
 function evaluateLandedTile(player, lastRoll) {
   const pos = player.position;
 
+  // Effetto visivo sulla casella (non modifica in alcun modo le regole).
+  playLandingVisualFX(pos);
+
   // 1. VITTORIA AL CASTELLO (Casella 63 ESATTA)
   if (pos === 63) {
     showVictoryModal(player);
@@ -1427,20 +2098,26 @@ function updatePawnHUDPositions() {
 
 function logEvent(msg, type = 'normal') {
   const feed = document.getElementById('event-feed-list');
+  if (!feed) return;
+
   const entry = document.createElement('div');
   entry.className = `event-entry ${type}`;
   entry.textContent = msg;
   feed.appendChild(entry);
+
+  // Le cronache non crescono all'infinito: al massimo 40 voci restano nel DOM.
+  while (feed.childElementCount > 40) feed.removeChild(feed.firstElementChild);
+
   feed.scrollTop = feed.scrollHeight;
+
+  // Ticker mobile sempre allineato all'ultimo evento della tavola.
+  updateMobileEventTicker(msg);
 }
 
 function showVictoryModal(winner) {
   playSound('fanfare');
-  confetti({
-    particleCount: 250,
-    spread: 120,
-    origin: { y: 0.6 }
-  });
+  spawnConfettiBurst('victory');
+  setTimeout(() => spawnConfettiBurst('tile'), 320);
 
   const modal = document.getElementById('modal-victory');
   const heading = document.getElementById('winner-title');
@@ -1544,10 +2221,41 @@ function onWindowResize() {
 
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+
+  // Il FAB della regia deve comparire/scomparire anche ruotando il telefono.
+  syncMobileAdminFab();
 }
 
 function animate() {
   requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const delta = Math.min(0.05, (now - lastFrameMs) / 1000);
+  lastFrameMs = now;
+
+  const time = now * 0.001;
+
+  // Le quattro torce sono la luce principale della scena.
+  updateTorches(time);
+
+  // Focolare vivo: due sinusoidi + micro-rumore deterministico, senza allocazioni.
+  if (fireplaceLight) {
+    const flicker = 1
+      + Math.sin(time * 8.7) * 0.11
+      + Math.sin(time * 21.3 + 1.7) * 0.045
+      + (Math.sin(time * 47.1) + Math.sin(time * 89.7 + 2.4)) * 0.018;
+
+    // Random-walk smorzato: guizzi irregolari (legna che scoppietta) senza allocazioni.
+    fireplaceFlicker += (Math.random() - 0.5) * 0.06;
+    fireplaceFlicker = THREE.MathUtils.lerp(fireplaceFlicker, 1, 0.08);
+
+    fireplaceLight.intensity = FIREPLACE_BASE_INTENSITY * Math.max(0.7, flicker + (fireplaceFlicker - 1) * 0.35);
+    fireplaceLight.color.setHSL(0.055 + Math.sin(time * 2.4) * 0.006, 0.96, 0.51 + Math.sin(time * 13.7) * 0.018);
+    fireplaceLight.position.x = -45 + Math.sin(time * 4.3) * 0.35 + (fireplaceFlicker - 1) * 0.6;
+    fireplaceLight.position.y = 18 + Math.sin(time * 6.7) * 0.18;
+  }
+
+  updateTransientEffects(delta);
   controls.update();
   renderer.render(scene, camera);
 }
@@ -1634,6 +2342,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // Pulsante Caos: CASCATA GENERALE (Tutti bevono!)
   document.getElementById('btn-trigger-waterfall').onclick = () => {
     playSound('fanfare');
+    spawnConfettiBurst('waterfall');
     PLAYERS.forEach(p => p.sips += 2);
     updatePawnHUDPositions();
     logEvent("🌊 CASCATA GENERALE SCATENATA! Tutti i giocatori bevono contemporaneamente senza sosta!", 'special');
@@ -1813,15 +2522,16 @@ window.addEventListener('DOMContentLoaded', () => {
           }
         });
       } else {
-        // Fallback locale: password predefinita "oca123"
-        if (password === "oca123" || password.length >= 3) {
+        // Fallback locale (nessun server): la regia si apre in hotseat.
+        // Non esiste una password master hardcoded: in locale serve solo un PIN di conferma.
+        if (password.length >= 3) {
           const localPin = Math.floor(1000 + Math.random() * 9000).toString();
           unlockAdminGodMode("local_token", localPin);
           dismissWelcomeScreen(() => {
             showRoomQRCode(localPin);
           });
         } else {
-          alert("Master Password errata! (Default di prova: oca123)");
+          alert("In modalità locale la Master Password deve avere almeno 3 caratteri.");
         }
       }
     };
@@ -1915,15 +2625,15 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       });
     } else {
-      // Fallback locale: password predefinita "oca123"
-      if (password === "oca123" || password.length >= 3) {
+      // Fallback locale (nessun server): regia hotseat, nessuna password hardcoded.
+      if (password.length >= 3) {
         const localPin = Math.floor(1000 + Math.random() * 9000).toString();
         unlockAdminGodMode("local_token", localPin);
         document.getElementById('modal-lobby').classList.remove('visible');
         showRoomQRCode(localPin);
         alert(`👑 Modalità Admin Sbloccata in Locale!\nPIN Stanza generato: ${localPin}`);
       } else {
-        alert("Master Password errata! (Default di test: oca123)");
+        alert("In modalità locale la Master Password deve avere almeno 3 caratteri.");
       }
     }
   };
@@ -2124,28 +2834,27 @@ function initMobileUI() {
     };
   }
 
-  // --- EVENT TICKER MOBILE ---
+  // --- EVENT TICKER MOBILE (tap = espandi/chiudi le cronache) ---
   const ticker = document.getElementById('mobile-event-ticker');
   if (ticker) {
     ticker.onclick = () => {
-      ticker.classList.toggle('expanded');
       if (ticker.classList.contains('expanded')) {
-        // Popola con tutti gli eventi dal feed
+        // Torna alla riga singola con l'ultimo evento.
+        ticker.classList.remove('expanded');
         const feedEl = document.getElementById('event-feed-list');
-        if (feedEl) {
-          ticker.innerHTML = feedEl.innerHTML || '<em>Nessun evento ancora.</em>';
-        }
+        const lastEvent = feedEl ? feedEl.lastElementChild : null;
+        ticker.textContent = lastEvent ? lastEvent.textContent : 'Benvenuti al Gioco dell\'Oca 3D!';
       } else {
-        // Torna al ticker riga singola
-        const tickerText = document.getElementById('mobile-ticker-text');
-        if (!tickerText) {
-          const feedEl = document.getElementById('event-feed-list');
-          const lastEvent = feedEl ? feedEl.lastElementChild : null;
-          ticker.textContent = lastEvent ? lastEvent.textContent : 'Benvenuti al Gioco dell\'Oca 3D!';
-        }
+        // Popola con tutti gli eventi dal feed (clonati, il feed resta intatto).
+        const feedEl = document.getElementById('event-feed-list');
+        ticker.innerHTML = feedEl ? feedEl.innerHTML : '<em>Nessun evento ancora.</em>';
+        ticker.scrollTop = ticker.scrollHeight;
+        ticker.classList.add('expanded');
       }
     };
   }
+
+  syncMobileAdminFab();
 }
 
 /**
@@ -2185,11 +2894,16 @@ function updateMobileEventTicker(text) {
 /**
  * Mostra il FAB Admin Mobile quando l'admin si autentica
  */
+function syncMobileAdminFab() {
+  const fab = document.getElementById('admin-fab-mobile');
+  if (!fab) return;
+  // Visibile solo per un Host autenticato su schermo mobile.
+  const nextDisplay = (adminToken && window.innerWidth <= 860) ? 'flex' : 'none';
+  if (fab.style.display !== nextDisplay) fab.style.display = nextDisplay;
+}
+
 function showMobileAdminFab() {
-  if (window.innerWidth <= 860) {
-    const fab = document.getElementById('admin-fab-mobile');
-    if (fab) fab.style.display = 'flex';
-  }
+  syncMobileAdminFab();
 }
 
 /**
@@ -2204,6 +2918,8 @@ function unlockAdminGodMode(token, roomId) {
   const godBar = document.getElementById('admin-god-bar');
   if (godBar) {
     godBar.style.display = 'flex';
+    // Il footer si alza di qualche pixel per lasciare spazio alla barra regia.
+    document.body.classList.add('admin-active');
   }
 
   // Aggiorna elenco giocatori per il teletrasporto
@@ -2216,6 +2932,9 @@ function unlockAdminGodMode(token, roomId) {
 
   logEvent(`👑 POTERI DELL'ADMIN ATTIVATI! Stanza PIN: ${roomId}. Regia dell'Host sbloccata in basso!`, 'special');
   playSound('fanfare');
+
+  // Su mobile la barra regia desktop è nascosta: mostriamo il FAB.
+  syncMobileAdminFab();
 }
 
 /**
@@ -2407,6 +3126,7 @@ function initSocketMultiplayer() {
 
     socket.on('admin_cascade_drink', (data) => {
       playSound('gulp');
+      spawnConfettiBurst('waterfall');
       openDrinkingModal(PLAYERS[currentPlayerIdx], {
         cat: "waterfall",
         icon: "🌊",
@@ -2446,10 +3166,13 @@ function initSocketMultiplayer() {
     });
 
     socket.on('player_won', (data) => {
-      playSound('fanfare');
-      triggerCelebration();
+      // Stessa celebrazione della vittoria locale: modale, fanfara e coriandoli.
       const winnerName = data.winner ? data.winner.name : "Campione";
-      alert(`🏆 GLORIA ETERNA!\n${winnerName} ha conquistato il Castello ed è il Sovrano Indiscusso della serata! 👑🍻`);
+      const winnerPlayer = PLAYERS.find(p => p.name === winnerName) || {
+        name: winnerName,
+        hex: '#ffd966'
+      };
+      showVictoryModal(winnerPlayer);
     });
 
   } catch (err) {

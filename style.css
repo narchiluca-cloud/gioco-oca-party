@@ -37,6 +37,19 @@
   padding: 0;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Feedback tattile globale: niente ritardo di 300ms sui tap e nessun
+   zoom accidentale quando si preme ripetutamente il tasto dei dadi. */
+button {
+  font-family: inherit;
+  touch-action: manipulation;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 2px;
 }
 
 body, html {
@@ -45,7 +58,7 @@ body, html {
   overflow: hidden;
   background-color: #120b07;
   color: var(--ink-primary);
-  font-family: 'Plus+Jakarta+Sans', -apple-system, sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
 }
 
 /* Canvas 3D a tutto schermo */
@@ -56,6 +69,8 @@ body, html {
   width: 100%;
   height: 100%;
   z-index: 1;
+  /* Gesture interamente a OrbitControls: nessuno scroll/zoom di pagina. */
+  touch-action: none;
 }
 
 /* ==========================================================================
@@ -531,6 +546,11 @@ body, html {
   color: #1a0f07;
 }
 
+.cam-btn:active {
+  transform: translateY(1px) scale(0.97);
+  filter: brightness(1.1);
+}
+
 /* ==========================================================================
    MODALI: VITTORIA, REGOLE & DETTAGLIO CASELLA
    ========================================================================== */
@@ -562,7 +582,11 @@ body, html {
   border-radius: 24px;
   padding: 30px;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  /* Bordo doppio + filo interno chiaro: la pergamena sembra rilegata a mano. */
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.8),
+    inset 0 0 0 2px rgba(156, 123, 80, 0.35),
+    inset 0 0 40px rgba(160, 120, 70, 0.16);
   transform: scale(0.92);
   transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
@@ -666,7 +690,7 @@ body, html {
   border: 2px solid var(--parchment-border);
   border-radius: 12px;
   padding: 12px 16px;
-  font-family: 'Plus+Jakarta+Sans', sans-serif;
+  font-family: 'Plus Jakarta Sans', sans-serif;
   font-size: 1rem;
   font-weight: 600;
   color: var(--ink-primary);
@@ -690,11 +714,25 @@ body, html {
   padding: 8px 12px;
 }
 
+/* Quando la Regia Host è attiva il footer sale, così la barra flottante non
+   copre mai il tasto dei dadi né le cronache (solo su desktop). */
+@media (min-width: 861px) {
+  body.admin-active .bottom-controls-row {
+    padding-bottom: 54px;
+  }
+}
+
 /* ==========================================================================
    RESPONSIVITÀ PER SMARTPHONE E TABLET (< 860px)
    L'interfaccia Desktop resta IDENTICA. Su mobile si trasforma completamente.
    ========================================================================== */
 @media (max-width: 860px) {
+
+  /* Altezza reale della stazione dadi ancorata in basso: ticker e FAB la usano
+     per restare sempre SOPRA il pannello e non coprire mai il tavolo 3D. */
+  :root {
+    --mobile-tray-h: 140px;
+  }
 
   /* --- A. BARRA SUPERIORE: COMPATTA & MINIMAL (44px) --- */
   #hud-layer {
@@ -752,6 +790,10 @@ body, html {
     padding: 4px 6px;
     font-size: 0.65rem;
     gap: 2px;
+    /* Touch target minimo consigliato (44px reali con il padding del banner). */
+    min-width: 36px;
+    min-height: 34px;
+    justify-content: center;
   }
 
   .utility-btns .icon-btn span {
@@ -780,11 +822,12 @@ body, html {
   .dice-action-station {
     width: 100%;
     border-radius: 16px 16px 0 0;
-    padding: 10px 16px 14px;
+    padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
     pointer-events: all;
-    background: linear-gradient(180deg, rgba(32, 18, 10, 0.95) 0%, rgba(16, 8, 4, 0.98) 100%);
-    backdrop-filter: blur(12px);
+    background: linear-gradient(180deg, rgba(32, 18, 10, 0.97) 0%, rgba(16, 8, 4, 0.99) 100%);
     border-bottom: none;
+    /* Niente backdrop-filter su mobile: il blur a tutto schermo costa GPU e
+       fa scendere il loop 3D sotto i 60 FPS. Lo sfondo è già quasi opaco. */
   }
 
   .turn-announcer {
@@ -873,7 +916,8 @@ body, html {
 .admin-fab-mobile {
   display: none;
   position: fixed;
-  bottom: 110px;
+  /* Sopra la stazione dadi e il ticker: non copre né il tavolo né il tasto dadi. */
+  bottom: calc(var(--mobile-tray-h, 140px) + env(safe-area-inset-bottom, 0px) + 46px);
   right: 14px;
   width: 54px;
   height: 54px;
@@ -929,7 +973,11 @@ body, html {
   right: 0;
   background: linear-gradient(145deg, #f8efdf 0%, #e4d1aa 100%);
   border-radius: 20px 20px 0 0;
-  padding: 10px 18px 28px;
+  border-top: 3px double var(--parchment-border);
+  padding: 10px 18px calc(24px + env(safe-area-inset-bottom, 0px));
+  max-height: 76vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   animation: mobileSheetUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1008,7 +1056,11 @@ body, html {
   right: 0;
   background: linear-gradient(145deg, #f8efdf 0%, #e4d1aa 100%);
   border-radius: 20px 20px 0 0;
-  padding: 10px 18px 28px;
+  border-top: 3px double var(--parchment-border);
+  padding: 10px 18px calc(24px + env(safe-area-inset-bottom, 0px));
+  max-height: 72vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   animation: mobileSheetUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1058,7 +1110,8 @@ body, html {
 .mobile-event-ticker {
   display: none;
   position: fixed;
-  bottom: 92px;
+  /* Appoggiato sul bordo superiore della stazione dadi, mai sopra il canvas. */
+  bottom: calc(var(--mobile-tray-h, 140px) + env(safe-area-inset-bottom, 0px) + 8px);
   left: 8px;
   right: 8px;
   background: rgba(32, 18, 10, 0.88);
@@ -1082,7 +1135,8 @@ body, html {
   white-space: normal;
   max-height: 45vh;
   overflow-y: auto;
-  bottom: 92px;
+  overscroll-behavior: contain;
+  bottom: calc(var(--mobile-tray-h, 140px) + env(safe-area-inset-bottom, 0px) + 8px);
   border-radius: 14px;
   font-size: 0.78rem;
   line-height: 1.5;
@@ -1129,7 +1183,10 @@ body, html {
   border-radius: 24px;
   padding: 28px 24px;
   text-align: center;
-  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), inset 0 0 25px rgba(180, 140, 80, 0.18);
+  box-shadow:
+    0 25px 70px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 2px rgba(156, 123, 80, 0.32),
+    inset 0 0 25px rgba(180, 140, 80, 0.18);
   position: relative;
   animation: welcomePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }

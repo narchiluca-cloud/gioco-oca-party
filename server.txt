@@ -58,7 +58,7 @@ A) MODALITA' HOST IBRIDO / P2P (Zero installazioni - Funziona ORA nel browser):
 
 B) MODALITA' SERVER CENTRALE DEDICATO (Raccomandata per serate al 100% stabili):
    Un piccolo server Node.js leggerissimo (consuma meno di 40MB di RAM) riceve le
-   connessioni di tutti i telefoni attraverso WebSockets (Socket.io).
+   connessioni di tutti i telefoni attraverso WebSocket (Socket.io).
 
 SCHEMA DEI FLUSSI:
                       +-----------------------------+
@@ -68,21 +68,21 @@ SCHEMA DEI FLUSSI:
                                      |
                                      | Eventi Admin (Start, Kick, Chaos Event)
                                      v
-                       +-----------------------------+
-                       |   SERVER CENTRALE (Node.js) |
-                       |    - State Machine Unica    |
-                       |    - Lancio Dadi Server-Side|
-                       |    - Sanitizzazione XSS     |
-                       +--------------+--------------+
+                      +-----------------------------+
+                      |   SERVER CENTRALE (Node.js) |
+                      |    - State Machine Unica    |
+                      |    - Lancio Dadi Server-Side|
+                      |    - Sanitizzazione XSS     |
+                      +--------------+--------------+
                                      |
-                 +--------------------+--------------------+
-                 | WebSocket Broadcast| WebSocket Broadcast|
-                 v                    v                    v
-       +-------------------+ +-------------------+ +-------------------+
-       | TELEFONO AMICO 1  | | TELEFONO AMICO 2  | |  TV / TABLET      |
-       | "Tocca a te!"     | | "In attesa di L." | | (Vista Panoramica |
-       | [Tasto Lancia]    | | [Vedi Tabellone]  | |  del Tabellone)   |
-       +-------------------+ +-------------------+ +-------------------+
+                +--------------------+--------------------+
+                | WebSocket Broadcast| WebSocket Broadcast|
+                v                    v                    v
+      +-------------------+ +-------------------+ +-------------------+
+      | TELEFONO AMICO 1  | | TELEFONO AMICO 2  | |  TV / TABLET      |
+      | "Tocca a te!"     | | "In attesa di L." | | (Vista Panoramica |
+      | [Tasto Lancia]    | | [Vedi Tabellone]  | |  del Tabellone)   |
+      +-------------------+ +-------------------+ +-------------------+
 
 ================================================================================
 3. ANALISI COMPLETA DELLE FALLE (VULNERABILITA', RISCHI E SOLUZIONI)
