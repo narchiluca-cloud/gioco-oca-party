@@ -232,6 +232,7 @@ io.on('connection', (socket) => {
       name: cleanName,
       position: 0,
       missTurns: 0,
+      isFirstTurn: true,
       isOnline: true,
       // Campo opzionale: i client vecchi lo ignorano, quelli nuovi lo usano.
       avatar: createDefaultAvatar(room.players.length)
@@ -303,24 +304,41 @@ io.on('connection', (socket) => {
 
     room.isRolling = true;
 
-    // Generazione casuale crittograficamente sicura (1 a 6)
-    const rollValue = crypto.randomInt(1, 7);
+    // Due dadi crittograficamente sicuri, come nelle regole classiche.
+    const d1 = crypto.randomInt(1, 7);
+    const d2 = crypto.randomInt(1, 7);
+    const rollValue = d1 + d2;
 
-    // Calcolo posizione con rimbalzo oltre il 63 (Il Castello)
-    let newPos = currentPlayer.position + rollValue;
-    if (newPos > 63) {
-      const overshoot = newPos - 63;
-      newPos = 63 - overshoot;
+    // Calcolo posizione con rimbalzo oltre il 63 (Il Castello).
+    const bounce = (raw) => (raw > 63 ? 63 - (raw - 63) : raw);
+
+    let newPos;
+    const opening63 = (d1 === 6 && d2 === 3) || (d1 === 3 && d2 === 6);
+    const opening53 = (d1 === 5 && d2 === 4) || (d1 === 4 && d2 === 5);
+
+    if (currentPlayer.isFirstTurn) {
+      currentPlayer.isFirstTurn = false;
+      if (opening63) newPos = 26;
+      else if (opening53) newPos = 53;
+      else newPos = bounce(currentPlayer.position + rollValue);
+    } else {
+      newPos = bounce(currentPlayer.position + rollValue);
     }
 
     currentPlayer.position = newPos;
 
-    // Notifica tutti i telefoni contemporaneamente
+    // Stato autoritativo aggiornato subito: tutti i client vedono la nuova casella.
+    io.to(roomId).emit('room_state_updated', room);
+
+    // Notifica tutti i telefoni contemporaneamente (anche chi ha lanciato).
     io.to(roomId).emit('dice_rolled', {
       playerId: currentPlayer.id,
       playerName: currentPlayer.name,
+      dice1: d1,
+      dice2: d2,
       rollValue: rollValue,
-      newPosition: newPos
+      newPosition: newPos,
+      openingSpecial: opening63 || opening53
     });
 
     // Controllo vittoria al Castello (Casella 63)
@@ -330,7 +348,7 @@ io.on('connection', (socket) => {
     }
 
     room.isRolling = false;
-    if (callback) callback({ success: true, rollValue: rollValue });
+    if (callback) callback({ success: true, dice1: d1, dice2: d2, rollValue: rollValue });
   });
 
   // 5. COMPLETAMENTO SFIDA & CAMBIO TURNO (Autorizzato solo per il giocatore di turno o l'Admin)
@@ -361,6 +379,7 @@ io.on('connection', (socket) => {
       room.players.forEach((p, i) => {
         p.position = 0;
         p.missTurns = 0;
+        p.isFirstTurn = true;
         p.avatar = createDefaultAvatar(i); // torna al posto, drink sociali azzerati
       });
       room.currentTurnIndex = 0;

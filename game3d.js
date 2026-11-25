@@ -116,6 +116,10 @@ let currentRoomId = null;
 let isAdmin = false;
 let adminToken = null;
 let localPlayerName = localStorage.getItem('oca_player_name') || '';
+// True solo mentre il giocatore locale ha un turno autoritativo in corso.
+let pendingResolveTurn = false;
+// Firma dei giocatori nella stanza: cambia quando entra/esce qualcuno.
+let lastRoomSignature = null;
 
 // Caselle speciali dell'Oca Classica
 const GOOSE_TILES = [5, 9, 14, 18, 23, 27, 32, 36, 41, 45, 50, 54, 59];
@@ -1666,6 +1670,15 @@ function create3DGeesePawns() {
   });
 }
 
+/** Ricrea le pedine 3D quando cambia l'elenco dei giocatori (join/kick). */
+function rebuildPawnMeshes() {
+  while (pawnsGroup.children.length) {
+    pawnsGroup.remove(pawnsGroup.children[0]);
+  }
+  PAWN_MESHES.length = 0;
+  create3DGeesePawns();
+}
+
 // ============================================================================
 // AVATAR GOBLIN NELLA TAVERNA (livello SOCIALE, non tocca le regole)
 // Geometrie e materiali condivisi: nessuna dipendenza esterna, 12 avatar max.
@@ -2855,31 +2868,49 @@ function triggerRollTurn() {
   }
 
   const btnRoll = document.getElementById('btn-roll-dice');
-  btnRoll.disabled = true;
+  const diceBoxes = document.querySelectorAll('.wood-dice-box');
+  const online = !!(socket && socket.connected && currentRoomId);
 
-  // 1. Controllo se il giocatore deve saltare il turno (Locanda / Prigione)
+  // 1. Turno saltato (Locanda / Prigione)
   if (player.skipTurns > 0) {
     player.skipTurns--;
     logEvent(`${player.name} è bloccato e salta questo turno! (Turni rimasti: ${player.skipTurns})`, 'special');
     advanceToNextPlayer();
+    if (online) socket.emit('resolve_turn', {}); // il server deve avanzare il turno
     return;
   }
 
-  // 2. Controllo se il giocatore è intrappolato nel Pozzo
+  // 2. Pozzo: serve un compagno
   if (player.trapped) {
     logEvent(`${player.name} è ancora intrappolato nel Pozzo! Serve un compagno per liberarlo.`, 'special');
     advanceToNextPlayer();
+    if (online) socket.emit('resolve_turn', {});
     return;
   }
 
-  // 3. Lancio dei 2 dadi (1..6)
+  btnRoll.disabled = true;
+  diceBoxes.forEach(b => b.classList.add('rolling'));
+
+  // 3a. MULTIPLAYER: dadi e posizione li decide il server (zero cheat).
+  if (online) {
+    socket.emit('request_roll_dice', {}, (res) => {
+      if (!res || !res.success) {
+        btnRoll.disabled = false;
+        diceBoxes.forEach(b => b.classList.remove('rolling'));
+        logEvent(`⚠️ ${res && res.message ? res.message : 'Lancio non riuscito.'}`, 'special');
+      } else {
+        // Il successivo dice_rolled (broadcast a tutti, incluso chi lancia)
+        // guida animazione e regole. Qui segniamo solo che dovremo risolvere il turno.
+        pendingResolveTurn = true;
+      }
+    });
+    return;
+  }
+
+  // 3b. OFFLINE / HOTSEAT: logica storica invariata.
   const d1 = Math.floor(Math.random() * 6) + 1;
   const d2 = Math.floor(Math.random() * 6) + 1;
   const totalRoll = d1 + d2;
-
-  // Aggiornamento visivo interfaccia dadi
-  const diceBoxes = document.querySelectorAll('.wood-dice-box');
-  diceBoxes.forEach(b => b.classList.add('rolling'));
 
   roll3DDiceAnimation(d1, d2, () => {
     diceBoxes.forEach(b => b.classList.remove('rolling'));
@@ -2888,7 +2919,6 @@ function triggerRollTurn() {
 
     logEvent(`${player.name} ha lanciato i dadi: [${d1}] + [${d2}] = ${totalRoll}!`);
 
-    // Regola classica del primo tiro: 6 e 3 -> casella 26; 5 e 4 -> casella 53
     if (player.isFirstTurn) {
       player.isFirstTurn = false;
       if ((d1 === 6 && d2 === 3) || (d1 === 3 && d2 === 6)) {
@@ -2902,18 +2932,14 @@ function triggerRollTurn() {
       }
     }
 
-    // Calcolo destinazione con rimbalzo se supera 63
     let targetPos = player.position + totalRoll;
     let bounced = false;
-
     if (targetPos > 63) {
       const overshoot = targetPos - 63;
       targetPos = 63 - overshoot;
       bounced = true;
       logEvent(`⚠️ RIMBALZO AL TRAGUARDO! ${player.name} supera 63 e rimbalza indietro alla Casella ${targetPos}!`, 'special');
     }
-
-    // Movimento passo dopo passo
     movePawnStepByStep(player, targetPos, totalRoll, bounced);
   });
 }
@@ -3110,7 +3136,16 @@ function advanceToNextPlayer() {
   updateTurnHUD();
 
   const btnRoll = document.getElementById('btn-roll-dice');
-  btnRoll.disabled = false;
+  if (btnRoll) btnRoll.disabled = false;
+
+  // In multiplayer il turno è autoritativo: lo avanza solo chi ha lanciato,
+  // dopo che l'animazione (ed eventuale sfida) è terminata.
+  if (pendingResolveTurn) {
+    pendingResolveTurn = false;
+    if (socket && socket.connected && currentRoomId) {
+      socket.emit('resolve_turn', {});
+    }
+  }
 }
 
 // ============================================================================
@@ -3901,6 +3936,8 @@ window.addEventListener('DOMContentLoaded', () => {
         socket.emit('player_join_room', { roomId: pin, playerName: name }, (res) => {
           if (res && res.success) {
             currentRoomId = pin;
+            sessionStorage.setItem('oca_room_id', pin);
+            if (res.sessionToken) sessionStorage.setItem('oca_session_token', res.sessionToken);
             dismissWelcomeScreen(() => {
               logEvent(`🎉 Benvenuto ${name}! Ti sei unito alla stanza #${pin}`, 'special');
             });
@@ -4087,6 +4124,8 @@ window.addEventListener('DOMContentLoaded', () => {
       socket.emit('player_join_room', { roomId: pin, playerName: name }, (res) => {
         if (res.success) {
           currentRoomId = pin;
+          sessionStorage.setItem('oca_room_id', pin);
+          if (res.sessionToken) sessionStorage.setItem('oca_session_token', res.sessionToken);
           document.getElementById('modal-lobby').classList.remove('visible');
           logEvent(`🎉 Benvenuto ${name}! Ti sei unito alla stanza #${pin}`, 'special');
         } else {
@@ -4504,21 +4543,29 @@ function initSocketMultiplayer() {
     socket.on('room_state_updated', (room) => {
       if (!room) return;
       currentRoomId = room.id;
+      const roomPlayers = Array.isArray(room.players) ? room.players : [];
+      const signature = roomPlayers.map(p => p.id).join('|');
+      const structureChanged = signature !== lastRoomSignature;
+      lastRoomSignature = signature;
 
-      if (room.players && room.players.length > 0) {
-        const isFirstLoad = PLAYERS.length === 0;
-
-        room.players.forEach((rp, idx) => {
+      if (structureChanged) {
+        // Qualcuno è entrato/uscito: ricostruisci PLAYERS mantenendo gli oggetti
+        // già esistenti (così non si perdono avatar, drink e posizioni locali).
+        const previous = PLAYERS.slice();
+        const rebuilt = [];
+        roomPlayers.forEach((rp, idx) => {
           const colorCfg = getPlayerColor(idx);
-          if (isFirstLoad) {
-            PLAYERS.push({
+          let p = previous.find(old => old.id === rp.id ||
+            (rp.sessionToken && old.sessionToken === rp.sessionToken));
+          if (!p) {
+            p = {
               id: rp.id,
               sessionToken: rp.sessionToken,
               name: rp.name,
               position: rp.position,
               skipTurns: rp.missTurns || 0,
               trapped: false,
-              isFirstTurn: true,
+              isFirstTurn: typeof rp.isFirstTurn === 'boolean' ? rp.isFirstTurn : true,
               sips: 0,
               shots: 0,
               partnerId: null,
@@ -4526,53 +4573,63 @@ function initSocketMultiplayer() {
               color: colorCfg.color,
               cssClass: colorCfg.cssClass,
               avatar: rp.avatar ? { ...rp.avatar } : undefined
-            });
+            };
           } else {
-            const existing = PLAYERS[idx];
-            if (existing) {
-              existing.name = rp.name;
-              existing.position = rp.position;
-              existing.skipTurns = rp.missTurns || 0;
-              if (rp.avatar) {
-                const a = ensureAvatarData(existing, idx);
-                a.mode = rp.avatar.mode || a.mode;
-                a.x = typeof rp.avatar.x === 'number' ? rp.avatar.x : a.x;
-                a.z = typeof rp.avatar.z === 'number' ? rp.avatar.z : a.z;
-                a.yaw = typeof rp.avatar.yaw === 'number' ? rp.avatar.yaw : a.yaw;
-                a.spot = rp.avatar.spot || null;
-                a.drinks = rp.avatar.drinks || 0;
-                if (!roamMode || idx !== getLocalPlayerIndex()) {
-                  a.targetX = a.x;
-                  a.targetZ = a.z;
-                  a.targetYaw = a.yaw;
-                }
-              }
+            p.name = rp.name;
+            p.hex = colorCfg.hex;
+            p.color = colorCfg.color;
+            p.cssClass = colorCfg.cssClass;
+            if (typeof rp.isFirstTurn === 'boolean') p.isFirstTurn = rp.isFirstTurn;
+          }
+          rebuilt.push(p);
+        });
+        PLAYERS.length = 0;
+        PLAYERS.push(...rebuilt);
+        rebuildPawnMeshes();
+        syncGoblinAvatars();
+        renderPlayersHUD();
+      } else {
+        // Solo aggiornamenti di stato: niente ricostruzione delle mesh.
+        roomPlayers.forEach((rp, idx) => {
+          const p = PLAYERS[idx];
+          if (!p) return;
+          p.name = rp.name;
+          p.position = rp.position;
+          p.skipTurns = rp.missTurns || 0;
+          if (typeof rp.isFirstTurn === 'boolean') p.isFirstTurn = rp.isFirstTurn;
+          if (rp.avatar) {
+            const a = ensureAvatarData(p, idx);
+            a.mode = rp.avatar.mode || a.mode;
+            a.x = typeof rp.avatar.x === 'number' ? rp.avatar.x : a.x;
+            a.z = typeof rp.avatar.z === 'number' ? rp.avatar.z : a.z;
+            a.yaw = typeof rp.avatar.yaw === 'number' ? rp.avatar.yaw : a.yaw;
+            a.spot = rp.avatar.spot || null;
+            a.drinks = rp.avatar.drinks || 0;
+            if (!roamMode || idx !== getLocalPlayerIndex()) {
+              a.targetX = a.x;
+              a.targetZ = a.z;
+              a.targetYaw = a.yaw;
             }
           }
         });
-
-        // Ricrea pedine 3D e HUD solo al primo caricamento dello stato stanza
-        if (isFirstLoad) {
-          create3DGeesePawns();
-          syncGoblinAvatars();
-          renderPlayersHUD();
-        } else {
-          // Aggiorna pedine 3D già esistenti (riconnesione / sincronizzazione posizione)
-          room.players.forEach((rp, idx) => {
-            if (PLAYERS[idx] && !isMovingPawn && Math.abs(PLAYERS[idx].position - rp.position) > 0) {
-              updatePawn3DPosition(PLAYERS[idx]);
-            }
-          });
-          updatePawnHUDPositions();
-          syncGoblinAvatars();
-        }
-
-        // Tieni l'indice di turno coerente con il numero di giocatori attuali
-        if (currentPlayerIdx >= PLAYERS.length) {
-          currentPlayerIdx = Math.max(0, PLAYERS.length - 1);
-        }
-        updateTurnHUD();
       }
+
+      // Pedine sempre allineate alla posizione autoritativa del server.
+      roomPlayers.forEach((rp, idx) => {
+        const p = PLAYERS.find(pl => pl.id === rp.id) || PLAYERS[idx];
+        if (p && !isMovingPawn && p.position !== rp.position) {
+          p.position = rp.position;
+          updatePawn3DPosition(p);
+        }
+      });
+
+      // Turno autoritativo.
+      if (Number.isInteger(room.currentTurnIndex)) {
+        currentPlayerIdx = room.currentTurnIndex % Math.max(1, PLAYERS.length);
+      }
+      updatePawnHUDPositions();
+      syncGoblinAvatars();
+      updateTurnHUD();
     });
 
     // Stato sociale degli avatar: evento leggero, separato dalla partita.
@@ -4612,18 +4669,37 @@ function initSocketMultiplayer() {
     });
 
     socket.on('dice_rolled', (data) => {
-      if (data.playerId !== socket.id) {
-        logEvent(`🎲 ${data.playerName} ha tirato ${data.rollValue}!`, 'roll');
-        const p = PLAYERS.find(pl => pl.name === data.playerName) || PLAYERS[currentPlayerIdx];
-        if (p) {
-          p.currentRoll = data.rollValue;
-          renderDiceDots(document.getElementById('dice-face-1'), Math.ceil(data.rollValue / 2));
-          renderDiceDots(document.getElementById('dice-face-2'), Math.floor(data.rollValue / 2) || 1);
-          movePawnSequence(p, data.newPosition, () => {
-            evaluateLandedTile(p, data.rollValue);
-          });
-        }
+      // Ora il broadcast arriva anche a chi ha lanciato: non più "solo agli altri".
+      const d1 = data.dice1 || Math.ceil((data.rollValue || 2) / 2);
+      const d2 = data.dice2 || (Math.floor((data.rollValue || 2) / 2) || 1);
+      const roll = data.rollValue || (d1 + d2);
+
+      logEvent(`🎲 ${data.playerName} ha tirato [${d1}] + [${d2}] = ${roll}!`, 'roll');
+      if (data.openingSpecial) {
+        logEvent(`🚀 TIRO SPECIALE D'APERTURA: ${data.playerName} vola alla Casella ${data.newPosition}!`, 'special');
       }
+
+      const p = PLAYERS.find(pl => pl.id === data.playerId) ||
+                PLAYERS.find(pl => pl.name === data.playerName);
+      if (!p) return;
+
+      p.isFirstTurn = false;
+      p.currentRoll = roll;
+      const diceBoxes = document.querySelectorAll('.wood-dice-box');
+      diceBoxes.forEach(b => b.classList.add('rolling'));
+
+      roll3DDiceAnimation(d1, d2, () => {
+        diceBoxes.forEach(b => b.classList.remove('rolling'));
+        renderDiceDots(document.getElementById('dice-face-1'), d1);
+        renderDiceDots(document.getElementById('dice-face-2'), d2);
+        movePawnSequence(p, data.newPosition, () => {
+          // Regole e challenge girano su ogni dispositivo: tutti vedono lo stesso esito.
+          evaluateLandedTile(p, roll);
+        });
+      });
+
+      // Nota: il turno viene avanzato da advanceToNextPlayer solo sul dispositivo
+      // di chi ha lanciato (pendingResolveTurn), poi il server broadcasta lo stato.
     });
 
     socket.on('player_won', (data) => {
