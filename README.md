@@ -17,6 +17,13 @@ Un'esperienza web 3D interattiva creata con **Three.js**, grafica in stile **leg
   - 💀 **Scheletro del Resacone** (casella 58) che rispedisce alla casella 1.
 - **4 Oche Intagliate**: Miniature 3D colorate (Rosso ciliegia, Giallo miele, Verde bosco, Blu oltremare) con rotazione e animazione a balzi su curve paraboliche.
 
+### 1b. 🚶 Modalità Taverna (avatar goblin)
+- Ogni giocatore ha anche un **goblin con robe medievali** che vive nell'ostello attorno al tavolo.
+- Premi **🚶 Esplora** (o `M`) per passare alla vista third-person: **WASD** per muoverti, **E** per interagire, `M` per tornare al tavolo.
+- Su mobile compaiono **joystick** e pulsante **🍺**; la stazione dadi resta sempre utilizzabile.
+- Puoi avvicinarti a **bancone, panchine, camino e tavolo** per drink sociali. Sono eventi **cosmetici e autoritativi**: non modificano posizione, turno, dadi o vittoria.
+- Fino a **12 goblin** contemporanei, sincronizzati via Socket.io con evento dedicato a 10 Hz (rate-limit e validazione lato server).
+
 ### 2. 🍻 Modalità "Ubriaconi" & Domande Scomode
 - **Contatori Live in HUD**: Tracciamento in tempo reale di birre (`🍺 sorsi`) e cicchetti (`🥃 shot`) consumati da ogni oca.
 - **25+ Domande Scomode & Verità a Bruciapelo**:
@@ -34,7 +41,7 @@ Progettata per garantire la massima semplicità durante le feste:
   2. Rimane in attesa del codice stanza a sole **4 cifre numeriche** (es. `4821`), facilissimo da digitare da smartphone anche da brilli.
 - **Accesso Segreto Host**:
   - In fondo alla lobby, cliccando su *"👑 Sei l'Host della Serata? Accedi come Admin con Password"*.
-  - Master Password predefinita: `oca123` (configurabile da variabile d'ambiente).
+  - Master Password configurata lato server tramite la variabile d'ambiente `ADMIN_PASSWORD` (su Render: Environment → `ADMIN_PASSWORD`). Non esiste una password predefinita.
   - Crea la stanza e genera automaticamente un **QR Code ad alta risoluzione** a tema pergamena/legno scuro con il PIN a 4 cifre in grande.
   - Gli amici inquadrano il QR con la fotocamera ed entrano all'istante senza digitare nulla.
 - **Barra Regia Fluttuante (God Mode Bar)**:
@@ -52,7 +59,7 @@ Progettata per garantire la massima semplicità durante le feste:
 
 ### Modalità A: Locale / Hotseat (Nessuna installazione richiesta)
 1. Fai doppio clic sul file [index.html](file:///c:/Users/lucad/Desktop/Gioc%20oc/index.html) con qualsiasi browser (Chrome, Safari, Edge, Firefox).
-2. Tutto funziona immediatamente a schermo intero: dadi 3D, pedine, audio, sfide e pannello Admin (password locale: `oca123`).
+2. Tutto funziona immediatamente a schermo intero: dadi 3D, pedine, audio, sfide e regia Admin locale (senza password hardcoded).
 
 ### Modalità B: Server Multiplayer Online (Render / VPS / Node.js)
 1. Avvia il server:

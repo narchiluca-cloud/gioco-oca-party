@@ -185,6 +185,9 @@
         <button class="icon-btn" id="btn-rules-modal" title="Leggi le Regole Alcoliche">
           📜 <span>Regole</span>
         </button>
+        <button class="icon-btn" id="btn-toggle-roam" title="Esplora la taverna come goblin (M)">
+          🚶 <span>Esplora</span>
+        </button>
         <button class="icon-btn" id="btn-sound-toggle" title="Attiva/Disattiva Suoni">
           <span id="sound-toggle-icon">🔊 ON</span>
         </button>
@@ -511,6 +514,24 @@
   <div id="mobile-event-ticker" class="mobile-event-ticker" title="Tap per espandere le cronache">
     <span id="mobile-ticker-text">Benvenuti al Gioco dell'Oca 3D!</span>
   </div>
+
+  <!-- =======================================================================
+       MODALITÀ TAVERNA: controlli sociali del goblin (non toccano le regole)
+       ======================================================================= -->
+  <div id="roam-hint" class="roam-hint">
+    <span>🚶 WASD per muoverti · E per interagire · M per tornare al tavolo</span>
+    <button id="roam-exit-btn" class="roam-exit-btn">🪿 Torna al tavolo</button>
+  </div>
+
+  <div id="roam-prompt" class="roam-prompt"></div>
+
+  <div id="roam-joystick" class="roam-joystick" aria-label="Joystick movimento goblin">
+    <div id="roam-joystick-knob" class="roam-joystick-knob"></div>
+  </div>
+
+  <button id="roam-action-btn" class="roam-action-btn" title="Interagisci (E)">🍺</button>
+
+  <div id="tavern-toast" class="tavern-toast"></div>
 
   <!-- SCRIPT LOGICO & MOTORE THREE.JS -->
   <script src="game3d.js"></script>

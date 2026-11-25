@@ -12,7 +12,7 @@
 
 // --- VARIABILI GLOBALI THREE.JS ---
 let scene, camera, renderer, controls;
-let boardGroup, scenicsGroup, tilesGroup, pawnsGroup, diceGroup;
+let boardGroup, scenicsGroup, tilesGroup, pawnsGroup, diceGroup, tavernGroup, goblinsGroup;
 let isMovingPawn = false;
 let isRollingDice = false;
 
@@ -21,16 +21,57 @@ let isRollingDice = false;
 // particellari sono gestiti in un array e liberati appena terminano.
 let fireplaceLight = null;
 // Intensità di riposo del focolare: la modulazione avviene una sola volta per frame.
-const FIREPLACE_BASE_INTENSITY = 1.15;
+const FIREPLACE_BASE_INTENSITY = 2.0;
 let fireplaceFlicker = 1; // random-walk liscio per i guizzi irregolari
 let lastFrameMs = performance.now();
 const TRANSIENT_EFFECTS = [];
+const EMBER_SYSTEMS = []; // scintille delle torce e del focolare (un solo Points per sistema)
 let sparkleTexture = null;
+
+// Posizione del camino: il focolare è sulla parete di fondo dell'ostello.
+// Una sola costante, usata sia dalla luce sia dalla costruzione scenografica.
+const HEARTH_POS = { x: -48, y: 8, z: -99 };
 
 // Tracciato delle 64 posizioni 3D (Casella 0 = Molo Partenza, 1..63)
 const TILE_DATA = [];
 const TILE_MESHES = [];
 const PAWN_MESHES = [];
+const GOBLIN_AVATARS = []; // avatar sociali nella taverna, allineati a PLAYERS
+
+// --- TAVERNA SOCIALE: costanti uguali a quelle validate dal server ---
+const AVATAR_BOUNDS = { minX: -128, maxX: 128, minZ: -106, maxZ: 106 };
+const AVATAR_OBSTACLES = [
+  { minX: -82, maxX: 82, minZ: -62, maxZ: 62 },
+  { minX: 26, maxX: 98, minZ: -100, maxZ: -84 },
+  { minX: -118, maxX: -100, minZ: -78, maxZ: -62 },
+  { minX: 102, maxX: 118, minZ: -76, maxZ: -60 },
+  { minX: -110, maxX: -82, minZ: 34, maxZ: 44 },
+  { minX: 82, maxX: 110, minZ: 34, maxZ: 44 }
+];
+const AVATAR_SPOTS = [
+  { id: 'bar', x: 62, z: -79, radius: 9, label: 'al bancone', verb: 'Ordina un drink' },
+  { id: 'chair-left', x: -96, z: 28, radius: 8, label: 'alla panchina', verb: 'Sediti e bevi' },
+  { id: 'chair-right', x: 96, z: 28, radius: 8, label: 'alla panchina', verb: 'Sediti e bevi' },
+  { id: 'fireplace', x: -48, z: -88, radius: 9, label: 'al camino', verb: 'Riscaldati con un drink' },
+  { id: 'table', x: 0, z: 72, radius: 10, label: 'al tavolo', verb: 'Brinda con la tavolata' }
+];
+const DEFAULT_AVATAR_SEATS = [
+  { x: -96, z: -20 }, { x: -96, z: 20 },
+  { x: 96, z: -20 }, { x: 96, z: 20 },
+  { x: -50, z: 72 }, { x: 50, z: 72 },
+  { x: 0, z: 78 }, { x: -40, z: -70 },
+  { x: 40, z: -70 }, { x: 0, z: -76 },
+  { x: -100, z: 52 }, { x: 100, z: 52 }
+];
+
+const AVATAR_KEYS = { up: false, down: false, left: false, right: false };
+const AVATAR_JOY = { active: false, x: 0, y: 0 };
+const AVATAR_TMP_TARGET = new THREE.Vector3();
+const AVATAR_TMP_DELTA = new THREE.Vector3();
+let roamMode = false;
+let boardCameraSnapshot = null;
+let lastAvatarSendMs = 0;
+let goblinShared = null;
 
 // --- STATO DEL GIOCO (GIOCATORI DINAMICI, MAX 12) ---
 // Popolato dal server via Socket.io; in modalità offline/hotseat viene inizializzato con 4 giocatori default.
@@ -288,7 +329,8 @@ function initThreeScene() {
   // Scena
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x130a06); // Atmosfera buia da taverna con focolare
-  scene.fog = new THREE.FogExp2(0x130a06, 0.012);
+  // Nebbia più leggera: le pareti dell'ostello si intravedono senza nascondere il tabellone.
+  scene.fog = new THREE.FogExp2(0x130a06, 0.0065);
 
   // Telecamera
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -317,7 +359,8 @@ function initThreeScene() {
   controls.dampingFactor = 0.05;
   controls.maxPolarAngle = Math.PI / 2.15; // Non scendere sotto il tavolo
   controls.minDistance = 25;
-  controls.maxDistance = 120;
+  // La camera resta dentro le pareti dell'ostello: nessun muro può coprire il tavolo.
+  controls.maxDistance = 104;
   controls.target.set(0, 0, 0);
 
   // Luci della Taverna
@@ -329,12 +372,16 @@ function initThreeScene() {
   tilesGroup = new THREE.Group();
   pawnsGroup = new THREE.Group();
   diceGroup = new THREE.Group();
+  tavernGroup = new THREE.Group();
+  goblinsGroup = new THREE.Group();
 
+  scene.add(tavernGroup);
   scene.add(boardGroup);
   scene.add(scenicsGroup);
   scene.add(tilesGroup);
   scene.add(pawnsGroup);
   scene.add(diceGroup);
+  scene.add(goblinsGroup);
 
   // Costruzione Procedurale del Mondo 3D
   createRusticTableAndBoard();
@@ -343,6 +390,7 @@ function initThreeScene() {
   createScenicsCastle();
   createScenicsBridge();
   createScenicsVillage();
+  createTavernSurroundings();
   createTableTorches();
   create3DGeesePawns();
   create3DDice();
@@ -371,8 +419,8 @@ function setupLighting() {
 
   // Focolare della taverna: bagliore d'angolo, animato in animate().
   // Niente shadow map: una PointLight con ombre costa 6 render pass.
-  fireplaceLight = new THREE.PointLight(0xff7a2f, FIREPLACE_BASE_INTENSITY, 110, 1.6);
-  fireplaceLight.position.set(-45, 18, -40);
+  fireplaceLight = new THREE.PointLight(0xff7a2f, FIREPLACE_BASE_INTENSITY, 100, 1.5);
+  fireplaceLight.position.set(HEARTH_POS.x, HEARTH_POS.y, HEARTH_POS.z);
   fireplaceLight.castShadow = false;
   scene.add(fireplaceLight);
 }
@@ -384,10 +432,10 @@ const TORCHES = [];
 
 // Posizione della torcia + punto del tabellone che illumina (il suo quadrante).
 const TORCH_LAYOUT = [
-  { x: -62, z: -42, aimX: -17, aimZ: -11 },
-  { x: 62, z: -42, aimX: 17, aimZ: -11 },
-  { x: -62, z: 42, aimX: -17, aimZ: 11 },
-  { x: 62, z: 42, aimX: 17, aimZ: 11 }
+  { x: -46, z: -34, aimX: -17, aimZ: -11 },
+  { x: 46, z: -34, aimX: 17, aimZ: -11 },
+  { x: -46, z: 34, aimX: -17, aimZ: 11 },
+  { x: 46, z: 34, aimX: 17, aimZ: 11 }
 ];
 
 function createTableTorches() {
@@ -410,6 +458,8 @@ function createTableTorches() {
   const ringGeo = new THREE.TorusGeometry(0.62, 0.1, 5, 12);
   const cupGeo = new THREE.CylinderGeometry(1.9, 0.75, 1.7, 10);
   const coalGeo = new THREE.CylinderGeometry(1.6, 1.6, 0.25, 10);
+  const rimGeo = new THREE.TorusGeometry(1.9, 0.14, 5, 14);
+  const braceGeo = new THREE.BoxGeometry(0.22, 3.4, 0.22);
   const flameGeo = new THREE.ConeGeometry(1.0, 3.4, 8);
   const coreGeo = new THREE.ConeGeometry(0.5, 2.1, 8);
 
@@ -447,6 +497,20 @@ function createTableTorches() {
     const coals = new THREE.Mesh(coalGeo, coalMat);
     coals.position.y = 12.75;
     torchGroup.add(coals);
+
+    // Bordo del braciere e tiranti diagonali: la torcia sembra costruita,
+    // non un semplice cono che fluttua sopra un bastone.
+    const rim = new THREE.Mesh(rimGeo, ironMat);
+    rim.position.y = 13.25;
+    rim.rotation.x = Math.PI / 2;
+    rim.castShadow = true;
+    torchGroup.add(rim);
+    [-1, 1].forEach(side => {
+      const brace = new THREE.Mesh(braceGeo, ironMat);
+      brace.position.set(side * 0.95, 11.1, 0);
+      brace.rotation.z = side * 0.5;
+      torchGroup.add(brace);
+    });
 
     // 4. Fiamma: cono incandescente + nucleo chiaro. Materiali additivi:
     //    la luce vera è la SpotLight qui sotto, questi sono solo apparenza.
@@ -503,6 +567,12 @@ function createTableTorches() {
       flicker: 1
     });
   });
+
+  // Scintille che salgono dai quattro braceri: un solo Points per tutte.
+  createEmberSystem(
+    TORCH_LAYOUT.map(cfg => ({ x: cfg.x, y: 14.5, z: cfg.z })),
+    10, 0xffb257, 0.55
+  );
 }
 
 /**
@@ -530,6 +600,9 @@ function updateTorches(time) {
     const width = 0.95 + (energy - 1) * 0.25;
     t.flame.scale.set(width, stretch, width);
     t.flame.rotation.y = Math.sin(time * 2.8 + t.phase) * 0.35;
+    // Il colore della fiamma segue l'energia: più caldo nei guizzi, più rosso
+    // quando la fiamma si abbassa. setHSL non alloca oggetti.
+    t.flame.material.color.setHSL(0.055 + (energy - 1) * 0.008, 1, 0.54 + Math.min(0.1, (energy - 1) * 0.16));
     t.core.scale.setScalar(0.9 + energy * 0.12);
 
     t.glow.material.opacity = 0.28 + Math.max(0, energy - 0.75) * 0.34;
@@ -582,6 +655,320 @@ function createEnvironmentMap() {
   pmrem.dispose();
   equirect.dispose();
   return renderTarget.texture;
+}
+
+// ============================================================================
+// OSTELLO: PAVIMENTO, PARETI, TRAVI, FINESTRE, CAMINO E BANCONE
+// ----------------------------------------------------------------------------
+// Tutto è procedurale (zero asset esterni) e raggruppato in tavernGroup.
+// Le pareti stanno fuori dal raggio massimo della camera, quindi non coprono
+// mai il tabellone: la camera resta sempre dentro la sala.
+// ============================================================================
+
+/** Texture in pietra per le pareti: mattoni irregolari, generata una sola volta. */
+function createStoneTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1b1009'; // malta scura
+  ctx.fillRect(0, 0, 512, 512);
+
+  for (let row = 0; row < 8; row++) {
+    const offset = (row % 2) * 48;
+    for (let col = -1; col < 7; col++) {
+      const x = col * 96 + offset + 3;
+      const y = row * 64 + 3;
+      const shade = 52 + ((row * 11 + col * 7 + 120) % 5) * 9;
+      ctx.fillStyle = `rgb(${shade + 16}, ${shade + 7}, ${shade})`;
+      ctx.fillRect(x, y, 90, 58);
+      ctx.fillStyle = 'rgba(255, 220, 180, 0.06)';
+      ctx.fillRect(x, y, 90, 6);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, 90, 58);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 1);
+  return texture;
+}
+
+/** Pavimento in assi di rovere: tavole con venature e giunti scuri. */
+function createFloorPlankTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  for (let plank = 0; plank < 8; plank++) {
+    const y = plank * 64;
+    const shade = 44 + ((plank * 13) % 4) * 8;
+    ctx.fillStyle = `rgb(${shade + 26}, ${shade + 10}, ${shade})`;
+    ctx.fillRect(0, y, 512, 62);
+
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#1a0d06';
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 5; k++) {
+      const gy = y + 8 + k * 11;
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      for (let x = 0; x <= 512; x += 32) {
+        ctx.lineTo(x, gy + Math.sin(x * 0.035 + plank + k) * 2);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#150b05';
+    ctx.fillRect(0, y + 62, 512, 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(6, 5);
+  texture.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+  return texture;
+}
+
+/** Insegna lignea con testo dorato, appesa alle travi dell'ostello. */
+function createTavernSign(text, x, y, z, width, height, rotY = 0) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const bg = ctx.createLinearGradient(0, 0, 0, 128);
+  bg.addColorStop(0, '#3a2010');
+  bg.addColorStop(1, '#1b0d05');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = '#c6953e';
+  ctx.lineWidth = 7;
+  ctx.strokeRect(6, 6, 500, 116);
+  ctx.fillStyle = '#ffd15c';
+  ctx.font = 'bold 44px "Cinzel", "Cinzel Decorative", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, 68);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  const signMat = new THREE.MeshStandardMaterial({
+    map: texture, roughness: 0.62, metalness: 0.12, side: THREE.DoubleSide
+  });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(width, height), signMat);
+  sign.position.set(x, y, z);
+  sign.rotation.y = rotY;
+  tavernGroup.add(sign);
+
+  // Due catene corte verso la trave sovrastante.
+  const ropeGeo = new THREE.CylinderGeometry(0.13, 0.13, 9, 5);
+  const ropeMat = new THREE.MeshStandardMaterial({ color: 0x2a211b, roughness: 0.5, metalness: 0.6 });
+  [-1, 1].forEach(side => {
+    const dx = side * width * 0.36;
+    const rope = new THREE.Mesh(ropeGeo, ropeMat);
+    rope.position.set(x + Math.cos(rotY) * dx, y + height / 2 + 4.5, z - Math.sin(rotY) * dx);
+    tavernGroup.add(rope);
+  });
+}
+
+/** Costruisce l'ostello attorno al tavolo. Nessun oggetto tocca le regole. */
+function createTavernSurroundings() {
+  const stoneMat = new THREE.MeshStandardMaterial({
+    map: createStoneTexture(), color: 0x9a846c, roughness: 0.95, metalness: 0.02
+  });
+  const woodMat = new THREE.MeshStandardMaterial({
+    map: createFloorPlankTexture(), color: 0x9c7a58, roughness: 0.78, metalness: 0.04
+  });
+  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x2c180d, roughness: 0.82, metalness: 0.03 });
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x241b16, roughness: 0.5, metalness: 0.65 });
+
+  // Geometrie condivise: poche allocazioni, uno stesso materiale per più mesh.
+  const boxCache = {};
+  const getBox = (w, h, d) => {
+    const key = `${w}|${h}|${d}`;
+    if (!boxCache[key]) boxCache[key] = new THREE.BoxGeometry(w, h, d);
+    return boxCache[key];
+  };
+  const addBox = (w, h, d, x, y, z, material) => {
+    const mesh = new THREE.Mesh(getBox(w, h, d), material);
+    mesh.position.set(x, y, z);
+    tavernGroup.add(mesh);
+    return mesh;
+  };
+
+  // --- Pavimento: riceve le ombre del tavolo, nessun costo di shadow pass extra.
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(280, 250), woodMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -4.25;
+  floor.receiveShadow = true;
+  tavernGroup.add(floor);
+
+  // --- Pareti in pietra: fronte e retro bassi per non tagliare la vista.
+  addBox(280, 46, 3, 0, 18, -112, stoneMat);
+  addBox(280, 34, 3, 0, 11, 112, stoneMat);
+  addBox(3, 46, 228, -133, 18, 0, stoneMat);
+  addBox(3, 46, 228, 133, 18, 0, stoneMat);
+
+  // --- Zoccolatura in legno e travi a vista.
+  addBox(280, 9, 3.6, 0, 1, -109.5, woodMat);
+  addBox(280, 9, 3.6, 0, 1, 109.5, woodMat);
+  addBox(3.6, 9, 228, -130, 1, 0, woodMat);
+  addBox(3.6, 9, 228, 130, 1, 0, woodMat);
+  [-118, -86, -14, 18, 42, 76, 110].forEach(x => addBox(3, 46, 4, x, 18, -109, darkWoodMat));
+  [-80, 0, 80].forEach(z => {
+    addBox(5, 46, 3, -130, 18, z, darkWoodMat);
+    addBox(5, 46, 3, 130, 18, z, darkWoodMat);
+  });
+  addBox(280, 3.5, 5, 0, 36, -109, darkWoodMat);
+  addBox(5, 3.5, 228, -130, 36, 0, darkWoodMat);
+  addBox(5, 3.5, 228, 130, 36, 0, darkWoodMat);
+
+  // --- Finestre: vetro freddo +intelaiatura, contrappunto al fuoco caldo.
+  const paneMat = new THREE.MeshBasicMaterial({
+    color: 0x8fb6d4, transparent: true, opacity: 0.42,
+    side: THREE.DoubleSide, depthWrite: false
+  });
+  function addWindow(x, y, z, rotY) {
+    const frame = new THREE.Group();
+    frame.position.set(x, y, z);
+    frame.rotation.y = rotY;
+    frame.add(new THREE.Mesh(new THREE.PlaneGeometry(16, 18), paneMat));
+    const top = new THREE.Mesh(getBox(18, 1.2, 1.2), darkWoodMat);
+    top.position.y = 9;
+    frame.add(top);
+    const bottom = top.clone();
+    bottom.position.y = -9;
+    frame.add(bottom);
+    const left = new THREE.Mesh(getBox(1.2, 18, 1.2), darkWoodMat);
+    left.position.x = -8;
+    frame.add(left);
+    const right = left.clone();
+    right.position.x = 8;
+    frame.add(right);
+    const crossV = new THREE.Mesh(getBox(0.8, 18, 0.8), darkWoodMat);
+    frame.add(crossV);
+    const crossH = new THREE.Mesh(getBox(16, 0.8, 0.8), darkWoodMat);
+    frame.add(crossH);
+    tavernGroup.add(frame);
+  }
+  addWindow(46, 18, -110.2, 0);
+  addWindow(96, 18, -110.2, 0);
+  addWindow(-131.2, 18, -30, Math.PI / 2);
+  addWindow(131.2, 18, -30, -Math.PI / 2);
+
+  // --- Camino in pietra sulla parete di fondo: focolare, ciocchi e fiamme.
+  const hx = HEARTH_POS.x;
+  const hz = HEARTH_POS.z;
+  addBox(34, 2, 18, hx, -3.2, hz - 3, stoneMat);
+  addBox(5, 26, 12, hx - 14, 11, hz - 5, stoneMat);
+  addBox(5, 26, 12, hx + 14, 11, hz - 5, stoneMat);
+  addBox(36, 5, 13, hx, 25, hz - 5, stoneMat);
+  const hearthMouth = new THREE.Mesh(
+    new THREE.PlaneGeometry(23, 22),
+    new THREE.MeshBasicMaterial({ color: 0x070301 })
+  );
+  hearthMouth.position.set(hx, 11, hz + 1.2);
+  tavernGroup.add(hearthMouth);
+
+  const logMat = new THREE.MeshStandardMaterial({ color: 0x3a1f0e, roughness: 0.95 });
+  const logGeo = new THREE.CylinderGeometry(1.1, 1.1, 13, 7);
+  [-2, 1, 4].forEach((y, i) => {
+    const log = new THREE.Mesh(logGeo, logMat);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = i * 0.25;
+    log.position.set(hx, -1 + i * 1.4, hz + 2.4 + i * 0.5);
+    tavernGroup.add(log);
+  });
+  const hearthFlameMat = new THREE.MeshBasicMaterial({
+    color: 0xff7a26, transparent: true, opacity: 0.72,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  [0, 1, 2].forEach(i => {
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(2.2 - i * 0.4, 8 - i * 1.4, 7), hearthFlameMat);
+    flame.position.set(hx + (i - 1) * 3.2, 3 + i * 0.6, hz + 2.8);
+    tavernGroup.add(flame);
+  });
+  const hearthGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: getSparkleTexture(), color: 0xff9a40, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  hearthGlow.position.set(hx, 6, hz + 3);
+  hearthGlow.scale.set(34, 34, 1);
+  tavernGroup.add(hearthGlow);
+
+  // --- Bancone del bar con bottiglie e boccali.
+  addBox(70, 9, 12, 62, 0, -92, woodMat);
+  addBox(74, 2, 15, 62, 5, -92, darkWoodMat);
+  addBox(70, 6, 1.2, 62, 0, -85.6, darkWoodMat);
+  const bottleGeo = new THREE.CylinderGeometry(0.85, 0.85, 3.2, 8);
+  const neckGeo = new THREE.CylinderGeometry(0.34, 0.34, 1.4, 6);
+  const greenGlass = new THREE.MeshStandardMaterial({
+    color: 0x2f6b3a, roughness: 0.18, metalness: 0.1,
+    transparent: true, opacity: 0.88, envMapIntensity: 1.1
+  });
+  const brownGlass = new THREE.MeshStandardMaterial({
+    color: 0x6b3a1b, roughness: 0.2, metalness: 0.08,
+    transparent: true, opacity: 0.88, envMapIntensity: 1.1
+  });
+  for (let i = 0; i < 8; i++) {
+    const mat = i % 2 ? greenGlass : brownGlass;
+    const bx = 36 + i * 7.4;
+    const bz = -94 + (i % 2) * 2.2;
+    const bottle = new THREE.Mesh(bottleGeo, mat);
+    bottle.position.set(bx, 7.6, bz);
+    tavernGroup.add(bottle);
+    const neck = new THREE.Mesh(neckGeo, mat);
+    neck.position.set(bx, 9.9, bz);
+    tavernGroup.add(neck);
+  }
+  const pewterMat = new THREE.MeshStandardMaterial({ color: 0x9a968d, roughness: 0.34, metalness: 0.72 });
+  const mugGeo = new THREE.CylinderGeometry(1.2, 1.1, 2.6, 10);
+  [28, 34, 90].forEach((mx, i) => {
+    const mug = new THREE.Mesh(mugGeo, pewterMat);
+    mug.position.set(mx, 7.3, -90 + (i % 2) * 2);
+    tavernGroup.add(mug);
+  });
+
+  // --- Botti e panche agli angoli: riempiono la sala senza ingombrare il tavolo.
+  function addBarrel(x, z) {
+    const barrel = new THREE.Group();
+    barrel.position.set(x, -4.2, z);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 11, 12), woodMat);
+    body.position.y = 5.5;
+    barrel.add(body);
+    [1.5, 5.5, 9.5].forEach(y => {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(5.05, 0.22, 5, 14), ironMat);
+      band.rotation.x = Math.PI / 2;
+      band.position.y = y;
+      barrel.add(band);
+    });
+    tavernGroup.add(barrel);
+  }
+  addBarrel(-108, -70);
+  addBarrel(110, -68);
+  addBarrel(-112, 48);
+  [-96, 96].forEach(x => {
+    addBox(26, 2, 6, x, -2.5, 38, darkWoodMat);
+    addBox(2, 4, 6, x - 10, -4.5, 38, darkWoodMat);
+    addBox(2, 4, 6, x + 10, -4.5, 38, darkWoodMat);
+  });
+
+  // Insegne e luci d'ambiente: due point light senza ombre illuminano le pareti.
+  createTavernSign("LOCANDA DELL'OCA", 62, 23, -109.2, 34, 8);
+  createTavernSign('VINO & BIRRA', -92, 23, -109.2, 26, 6);
+  [-105, 105].forEach(x => {
+    const wallLight = new THREE.PointLight(0xffa860, 0.6, 95, 1.7);
+    wallLight.position.set(x, 15, -66);
+    tavernGroup.add(wallLight);
+  });
+
+  // Braci che salgono dal camino: stesso sistema delle torce, colori più rossi.
+  createEmberSystem([{ x: hx, y: 2, z: hz + 3 }], 18, 0xff8a34, 0.7);
 }
 
 // ============================================================================
@@ -1228,6 +1615,237 @@ function create3DGeesePawns() {
   });
 }
 
+// ============================================================================
+// AVATAR GOBLIN NELLA TAVERNA (livello SOCIALE, non tocca le regole)
+// Geometrie e materiali condivisi: nessuna dipendenza esterna, 12 avatar max.
+// ============================================================================
+
+const AVATAR_FLOOR_Y = -4.2;
+
+function getGoblinShared() {
+  if (goblinShared) return goblinShared;
+  goblinShared = {
+    geo: {
+      robe: new THREE.ConeGeometry(1.15, 2.7, 8),
+      belt: new THREE.TorusGeometry(1.02, 0.12, 5, 10),
+      head: new THREE.SphereGeometry(0.62, 10, 8),
+      ear: new THREE.ConeGeometry(0.24, 0.85, 5),
+      eye: new THREE.SphereGeometry(0.09, 6, 5),
+      hat: new THREE.ConeGeometry(0.82, 1.05, 8),
+      brim: new THREE.TorusGeometry(0.82, 0.1, 5, 10),
+      limb: new THREE.CylinderGeometry(0.15, 0.15, 1.05, 6),
+      shadow: new THREE.CircleGeometry(1.25, 12)
+    },
+    skinMat: new THREE.MeshStandardMaterial({ color: 0x86b36a, roughness: 0.8, metalness: 0.02 }),
+    darkMat: new THREE.MeshStandardMaterial({ color: 0x2b1a10, roughness: 0.78, metalness: 0.05 }),
+    hatMat: new THREE.MeshStandardMaterial({ color: 0x3a2148, roughness: 0.72, metalness: 0.06 }),
+    eyeMat: new THREE.MeshBasicMaterial({ color: 0x120c08 }),
+    shadowMat: new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false
+    }),
+    robeMats: new Map()
+  };
+  return goblinShared;
+}
+
+function getRobeMaterial(colorHex) {
+  const shared = getGoblinShared();
+  const key = String(colorHex);
+  if (!shared.robeMats.has(key)) {
+    shared.robeMats.set(key, new THREE.MeshStandardMaterial({
+      color: colorHex, roughness: 0.72, metalness: 0.03, envMapIntensity: 0.5
+    }));
+  }
+  return shared.robeMats.get(key);
+}
+
+/** Etichetta con il nome del giocatore, sempre rivolta alla camera (Sprite). */
+function createAvatarNameTag(name) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(20, 10, 5, 0.82)';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(4, 4, 248, 56, 16) : ctx.rect(4, 4, 248, 56);
+  ctx.fill();
+  ctx.strokeStyle = '#e5b342';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = '#ffd966';
+  ctx.font = 'bold 30px "Cinzel", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const safeName = String(name || 'Goblin').slice(0, 18);
+  ctx.fillText(safeName, 128, 34);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture, transparent: true, depthWrite: false
+  }));
+  sprite.scale.set(3.8, 0.95, 1);
+  sprite.position.y = 4.7;
+  sprite.userData.isNameTag = true;
+  return sprite;
+}
+
+/** Crea un goblin low-poly con robe medievale e colori del giocatore. */
+function createGoblinAvatar(player, index) {
+  const shared = getGoblinShared();
+  const root = new THREE.Group();
+  root.scale.setScalar(1.15);
+
+  const robe = new THREE.Mesh(shared.geo.robe, getRobeMaterial(player.color));
+  robe.position.y = 1.4;
+  robe.castShadow = false;
+  root.add(robe);
+
+  const belt = new THREE.Mesh(shared.geo.belt, shared.darkMat);
+  belt.rotation.x = Math.PI / 2;
+  belt.position.y = 1.0;
+  root.add(belt);
+
+  const head = new THREE.Mesh(shared.geo.head, shared.skinMat);
+  head.position.y = 3.05;
+  root.add(head);
+
+  [-1, 1].forEach(side => {
+    const ear = new THREE.Mesh(shared.geo.ear, shared.skinMat);
+    ear.position.set(side * 0.62, 3.12, 0);
+    ear.rotation.z = side * 1.05;
+    root.add(ear);
+    const eye = new THREE.Mesh(shared.geo.eye, shared.eyeMat);
+    eye.position.set(side * 0.22, 3.08, 0.55);
+    root.add(eye);
+  });
+
+  const hat = new THREE.Mesh(shared.geo.hat, shared.hatMat);
+  hat.position.y = 4.05;
+  root.add(hat);
+  const brim = new THREE.Mesh(shared.geo.brim, shared.hatMat);
+  brim.rotation.x = Math.PI / 2;
+  brim.position.y = 3.62;
+  root.add(brim);
+
+  const leftArm = new THREE.Mesh(shared.geo.limb, getRobeMaterial(player.color));
+  leftArm.position.set(-1.0, 1.95, 0);
+  leftArm.rotation.z = 0.28;
+  root.add(leftArm);
+  const rightArm = leftArm.clone();
+  rightArm.position.x = 1.0;
+  rightArm.rotation.z = -0.28;
+  root.add(rightArm);
+
+  const leftLeg = new THREE.Mesh(shared.geo.limb, shared.darkMat);
+  leftLeg.position.set(-0.36, 0.42, 0);
+  root.add(leftLeg);
+  const rightLeg = leftLeg.clone();
+  rightLeg.position.x = 0.36;
+  root.add(rightLeg);
+
+  const shadow = new THREE.Mesh(shared.geo.shadow, shared.shadowMat);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.03;
+  root.add(shadow);
+
+  const nameTag = createAvatarNameTag(player.name);
+  root.add(nameTag);
+
+  goblinsGroup.add(root);
+  return {
+    root, robe, head, leftArm, rightArm, leftLeg, rightLeg, nameTag,
+    phase: index * 1.7,
+    lastName: player.name
+  };
+}
+
+/** Aggiunge i campi avatar ai player che non li hanno (retrocompatibilità). */
+function ensureAvatarData(player, index) {
+  if (!player.avatar) {
+    const seat = DEFAULT_AVATAR_SEATS[index % DEFAULT_AVATAR_SEATS.length];
+    player.avatar = {
+      mode: 'seat', x: seat.x, z: seat.z, yaw: 0,
+      spot: null, drinks: 0,
+      targetX: seat.x, targetZ: seat.z, targetYaw: 0
+    };
+  }
+  const a = player.avatar;
+  if (a.targetX === undefined) a.targetX = a.x;
+  if (a.targetZ === undefined) a.targetZ = a.z;
+  if (a.targetYaw === undefined) a.targetYaw = a.yaw || 0;
+  if (a.drinks === undefined) a.drinks = 0;
+  return a;
+}
+
+/** Allinea numero di goblin e dati avatar con l'elenco PLAYERS. */
+function syncGoblinAvatars() {
+  while (GOBLIN_AVATARS.length > PLAYERS.length) {
+    const old = GOBLIN_AVATARS.pop();
+    if (old && old.root) goblinsGroup.remove(old.root);
+  }
+  PLAYERS.forEach((p, idx) => {
+    const data = ensureAvatarData(p, idx);
+    if (!GOBLIN_AVATARS[idx]) {
+      GOBLIN_AVATARS[idx] = createGoblinAvatar(p, idx);
+    } else if (GOBLIN_AVATARS[idx].lastName !== p.name) {
+      // Il nome è cambiato: sostituisco solo l'etichetta.
+      const oldTag = GOBLIN_AVATARS[idx].nameTag;
+      GOBLIN_AVATARS[idx].root.remove(oldTag);
+      const tag = createAvatarNameTag(p.name);
+      GOBLIN_AVATARS[idx].root.add(tag);
+      GOBLIN_AVATARS[idx].nameTag = tag;
+      GOBLIN_AVATARS[idx].lastName = p.name;
+    }
+    GOBLIN_AVATARS[idx].root.position.set(data.x, AVATAR_FLOOR_Y, data.z);
+    GOBLIN_AVATARS[idx].root.rotation.y = data.yaw || 0;
+  });
+}
+
+/** Applica uno stato avatar ricevuto dal server senza toccare le regole. */
+function applyRemoteAvatarState(playerId, incoming) {
+  if (!incoming) return;
+  const idx = PLAYERS.findIndex(p => p.id === playerId);
+  if (idx === -1) return;
+
+  const local = idx === getLocalPlayerIndex();
+  const data = ensureAvatarData(PLAYERS[idx], idx);
+  const dist = Math.hypot(data.x - incoming.x, data.z - incoming.z);
+
+  if (local && roamMode) {
+    // Solo correzione hardware: il movimento locale resta fluido.
+    if (dist > 4) {
+      data.x = incoming.x;
+      data.z = incoming.z;
+    }
+  } else {
+    data.targetX = incoming.x;
+    data.targetZ = incoming.z;
+  }
+  data.targetYaw = incoming.yaw || 0;
+  data.mode = incoming.mode || data.mode;
+  data.spot = incoming.spot || null;
+  data.drinks = incoming.drinks || 0;
+  syncGoblinAvatars();
+}
+
+/** Indice del giocatore controllato da questo browser (0 in modalità offline). */
+function getLocalPlayerIndex() {
+  if (typeof socket === 'undefined' || !socket || !socket.connected) return 0;
+  const saved = sessionStorage.getItem('oca_session_token');
+  let idx = saved ? PLAYERS.findIndex(p => p.sessionToken === saved) : -1;
+  if (idx < 0) idx = PLAYERS.findIndex(p => p.id === socket.id);
+  return idx < 0 ? 0 : idx;
+}
+
+function isAvatarBlocked(x, z) {
+  if (x < AVATAR_BOUNDS.minX || x > AVATAR_BOUNDS.maxX ||
+      z < AVATAR_BOUNDS.minZ || z > AVATAR_BOUNDS.maxZ) return true;
+  return AVATAR_OBSTACLES.some(o =>
+    x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ
+  );
+}
+
 function buildSculptedGooseModel(colorHex) {
   const goose = new THREE.Group();
 
@@ -1597,6 +2215,91 @@ function getSparkleTexture() {
   sparkleTexture = new THREE.CanvasTexture(canvas);
   sparkleTexture.encoding = THREE.sRGBEncoding;
   return sparkleTexture;
+}
+
+/**
+ * Sistema di scintille fluttuanti (torce + camino).
+ * Un solo THREE.Points per sistema, array tipizzati preallocati: nessuna
+ * allocazione nel loop e nessun garbage collector in movimento.
+ */
+function createEmberSystem(sources, countPerSource, color, size) {
+  const count = sources.length * countPerSource;
+  if (!count) return;
+
+  const positions = new Float32Array(count * 3);
+  const origins = new Float32Array(count * 3);
+  const velocities = new Float32Array(count * 3);
+  const ages = new Float32Array(count);
+  const lives = new Float32Array(count);
+  const seeds = new Float32Array(count);
+
+  let n = 0;
+  for (let s = 0; s < sources.length; s++) {
+    for (let j = 0; j < countPerSource; j++, n++) {
+      const o = n * 3;
+      origins[o] = sources[s].x;
+      origins[o + 1] = sources[s].y;
+      origins[o + 2] = sources[s].z;
+      lives[n] = 0.9 + Math.random() * 1.5;
+      ages[n] = Math.random() * lives[n];
+      velocities[o] = (Math.random() - 0.5) * 0.9;
+      velocities[o + 1] = 2.1 + Math.random() * 3.1;
+      velocities[o + 2] = (Math.random() - 0.5) * 0.9;
+      seeds[n] = Math.random() * Math.PI * 2;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    color,
+    size,
+    map: getSparkleTexture(),
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  scene.add(points);
+  EMBER_SYSTEMS.push({ positions, origins, velocities, ages, lives, seeds, geometry, count });
+  // Inizializza subito le posizioni: il primo frame non mostra scintille ferme a (0,0,0).
+  updateEmbers(0, 0);
+}
+
+/** Avanza tutte le scintille. Chiamata una volta per frame da animate(). */
+function updateEmbers(delta, time) {
+  for (let s = 0; s < EMBER_SYSTEMS.length; s++) {
+    const sys = EMBER_SYSTEMS[s];
+    const p = sys.positions;
+    const v = sys.velocities;
+    const o0 = sys.origins;
+
+    for (let i = 0; i < sys.count; i++) {
+      const o = i * 3;
+      let age = sys.ages[i] + delta;
+
+      if (age >= sys.lives[i] || delta === 0) {
+        age = 0;
+        sys.lives[i] = 0.9 + Math.random() * 1.5;
+        p[o] = o0[o] + (Math.random() - 0.5) * 1.3;
+        p[o + 1] = o0[o + 1];
+        p[o + 2] = o0[o + 2] + (Math.random() - 0.5) * 1.3;
+        v[o] = (Math.random() - 0.5) * 0.9;
+        v[o + 1] = 2.1 + Math.random() * 3.1;
+        v[o + 2] = (Math.random() - 0.5) * 0.9;
+      }
+      sys.ages[i] = age;
+
+      // Deriva laterale sinusoidale: la scintilla tremola sale senza ruotare.
+      p[o] += (v[o] + Math.sin(time * 3.1 + sys.seeds[i]) * 0.32) * delta;
+      p[o + 1] += v[o + 1] * delta;
+      p[o + 2] += (v[o + 2] + Math.cos(time * 2.7 + sys.seeds[i]) * 0.28) * delta;
+    }
+    sys.geometry.attributes.position.needsUpdate = true;
+  }
 }
 
 function spawnConfettiBurst(preset = 'tile') {
@@ -2140,6 +2843,14 @@ function restartGame() {
     p.sips = 0;
     p.shots = 0;
     p.partnerId = null;
+    const seat = DEFAULT_AVATAR_SEATS[idx % DEFAULT_AVATAR_SEATS.length];
+    const a = ensureAvatarData(p, idx);
+    a.mode = 'seat';
+    a.x = a.targetX = seat.x;
+    a.z = a.targetZ = seat.z;
+    a.yaw = a.targetYaw = 0;
+    a.spot = null;
+    a.drinks = 0;
     placePawnOnTile(idx, 0, false);
   });
   currentPlayerIdx = 0;
@@ -2151,6 +2862,7 @@ function restartGame() {
 
 // CONTROLLO TELECAMERA PRESET
 function setCameraView(preset) {
+  if (roamMode) toggleRoamMode(false);
   document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
 
   if (preset === 'top') {
@@ -2226,6 +2938,304 @@ function onWindowResize() {
   syncMobileAdminFab();
 }
 
+// ============================================================================
+// CONTROLLO AVATAR: MOVIMENTO, CAMERA, INTERAZIONI SOCIALI
+// Tutto questo livello è cosmetico: non modifica posizione/turno/dadi del gioco.
+// ============================================================================
+
+let tavernToastTimer = null;
+
+function showTavernToast(message) {
+  const el = document.getElementById('tavern-toast');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add('visible');
+  clearTimeout(tavernToastTimer);
+  tavernToastTimer = setTimeout(() => el.classList.remove('visible'), 2400);
+}
+
+function updateRoamUI() {
+  document.body.classList.toggle('roam-active', roamMode);
+  const hint = document.getElementById('roam-hint');
+  if (hint) hint.style.display = roamMode ? 'flex' : 'none';
+  const btn = document.getElementById('btn-toggle-roam');
+  if (btn) {
+    btn.classList.toggle('active', roamMode);
+    const label = btn.querySelector('span');
+    if (label) label.textContent = roamMode ? 'Tavola' : 'Esplora';
+  }
+  if (!roamMode) {
+    const prompt = document.getElementById('roam-prompt');
+    if (prompt) prompt.classList.remove('visible');
+  }
+}
+
+/** Entra/esce dalla modalità esplorazione della taverna. */
+function toggleRoamMode(force) {
+  const next = (typeof force === 'boolean') ? force : !roamMode;
+  if (next === roamMode) return;
+  syncGoblinAvatars();
+  const idx = getLocalPlayerIndex();
+  const player = PLAYERS[idx];
+  if (!player) return;
+  const data = ensureAvatarData(player, idx);
+
+  if (next) {
+    boardCameraSnapshot = {
+      position: camera.position.clone(),
+      target: controls.target.clone()
+    };
+    roamMode = true;
+    data.mode = 'roam';
+    data.targetX = data.x;
+    data.targetZ = data.z;
+    camera.position.set(data.x, 20, data.z + 26);
+    controls.target.set(data.x, 3, data.z);
+    controls.minDistance = 8;
+    controls.maxDistance = 48;
+    logEvent("🚶 MODALITÀ TAVERNA: muoviti con WASD (o joystick), premi E per interagire, M per tornare al tavolo.", 'special');
+    showTavernToast('Esplora la taverna 🍻');
+  } else {
+    roamMode = false;
+    data.mode = 'seat';
+    if (boardCameraSnapshot) {
+      camera.position.copy(boardCameraSnapshot.position);
+      controls.target.copy(boardCameraSnapshot.target);
+    }
+    controls.minDistance = 25;
+    controls.maxDistance = 104;
+    logEvent('🪿 Sei tornato al tavolo. La partita continua senza cambiamenti.');
+    showTavernToast('Torno al tavolo 🪿');
+  }
+
+  updateRoamUI();
+  if (typeof socket !== 'undefined' && socket && socket.connected && currentRoomId) {
+    socket.emit('avatar_update', {
+      x: data.x, z: data.z, yaw: data.yaw, mode: data.mode
+    });
+  }
+}
+
+/** Interazione con il punto più vicino (bancone, sedie, camino, tavolo). */
+function tryAvatarInteract() {
+  if (!roamMode) return;
+  const idx = getLocalPlayerIndex();
+  const player = PLAYERS[idx];
+  if (!player) return;
+  const data = ensureAvatarData(player, idx);
+
+  let nearest = null;
+  let best = Infinity;
+  for (let i = 0; i < AVATAR_SPOTS.length; i++) {
+    const s = AVATAR_SPOTS[i];
+    const d = Math.hypot(data.x - s.x, data.z - s.z);
+    if (d < s.radius && d < best) {
+      best = d;
+      nearest = s;
+    }
+  }
+
+  if (!nearest) {
+    showTavernToast('Avvicinati al bancone, al camino o a una panchina.');
+    return;
+  }
+
+  data.spot = nearest.id;
+  playSound('gulp');
+  spawnConfettiBurst('tile');
+  logEvent(`🍺 ${player.name} si è preso un drink ${nearest.label}! (Drink sociali: ${(data.drinks || 0) + 1})`);
+  showTavernToast(`${nearest.verb} 🍺`);
+
+  if (typeof socket !== 'undefined' && socket && socket.connected && currentRoomId) {
+    socket.emit('avatar_action', { action: 'drink', spotId: nearest.id });
+  } else {
+    data.drinks = (data.drinks || 0) + 1; // offline: solo locale
+  }
+}
+
+/** Aggiorna avatar, collisioni, animazione walk e telemetria verso il server. */
+function updateGoblinAvatars(delta, time) {
+  if (!GOBLIN_AVATARS.length) return;
+  const dt = Math.min(delta, 0.05);
+  const localIdx = getLocalPlayerIndex();
+
+  for (let i = 0; i < PLAYERS.length; i++) {
+    const player = PLAYERS[i];
+    const avatar = GOBLIN_AVATARS[i];
+    if (!player || !avatar) continue;
+    const data = ensureAvatarData(player, i);
+    let speed = 0;
+
+    if (i === localIdx && roamMode) {
+      let mx = (AVATAR_KEYS.right ? 1 : 0) - (AVATAR_KEYS.left ? 1 : 0);
+      let mz = (AVATAR_KEYS.down ? 1 : 0) - (AVATAR_KEYS.up ? 1 : 0);
+      if (AVATAR_JOY.active) {
+        mx += AVATAR_JOY.x;
+        mz += AVATAR_JOY.y;
+      }
+      const len = Math.hypot(mx, mz);
+      if (len > 1) { mx /= len; mz /= len; }
+      speed = len > 0.05 ? 14 : 0;
+
+      if (speed > 0) {
+        // Collisioni asse per asse: scivola lungo gli ostacoli.
+        const stepX = mx * speed * dt;
+        const stepZ = mz * speed * dt;
+        if (!isAvatarBlocked(data.x + stepX, data.z)) data.x += stepX;
+        if (!isAvatarBlocked(data.x, data.z + stepZ)) data.z += stepZ;
+        data.targetX = data.x;
+        data.targetZ = data.z;
+        data.targetYaw = Math.atan2(mx, mz);
+      }
+    } else {
+      // Avatar remoti (o locale fuori dalla modalità): interpolazione morbida.
+      const k = 1 - Math.exp(-7 * dt);
+      const dx = data.targetX - data.x;
+      const dz = data.targetZ - data.z;
+      speed = Math.hypot(dx, dz) * k / Math.max(dt, 0.001);
+      data.x += dx * k;
+      data.z += dz * k;
+    }
+
+    // Yaw con percorso angolare più breve.
+    let yawDelta = (data.targetYaw || 0) - (data.yaw || 0);
+    yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta));
+    data.yaw = (data.yaw || 0) + yawDelta * (1 - Math.exp(-10 * dt));
+
+    const root = avatar.root;
+    root.position.x = data.x;
+    root.position.z = data.z;
+
+    if (speed > 0.25) {
+      avatar.phase += dt * (6 + Math.min(6, speed * 0.5));
+      const swing = Math.sin(avatar.phase) * 0.5;
+      avatar.leftLeg.rotation.x = swing;
+      avatar.rightLeg.rotation.x = -swing;
+      avatar.leftArm.rotation.x = -swing * 0.7;
+      avatar.rightArm.rotation.x = swing * 0.7;
+      root.position.y = AVATAR_FLOOR_Y + Math.abs(Math.sin(avatar.phase)) * 0.12;
+    } else {
+      avatar.leftLeg.rotation.x *= Math.exp(-8 * dt);
+      avatar.rightLeg.rotation.x *= Math.exp(-8 * dt);
+      avatar.leftArm.rotation.x *= Math.exp(-8 * dt);
+      avatar.rightArm.rotation.x *= Math.exp(-8 * dt);
+      root.position.y = AVATAR_FLOOR_Y + Math.sin(time * 1.7 + avatar.phase) * 0.04;
+    }
+    root.rotation.y = data.yaw;
+  }
+
+  // La camera segue il goblin locale durante l'esplorazione.
+  if (roamMode) {
+    const data = ensureAvatarData(PLAYERS[localIdx] || {}, localIdx);
+    AVATAR_TMP_TARGET.set(data.x, 3, data.z);
+    AVATAR_TMP_DELTA.copy(AVATAR_TMP_TARGET).sub(controls.target);
+    const k = 1 - Math.exp(-6 * dt);
+    controls.target.addScaledVector(AVATAR_TMP_DELTA, k);
+    camera.position.addScaledVector(AVATAR_TMP_DELTA, k);
+
+    // Prompt contestuale del punto più vicino.
+    const prompt = document.getElementById('roam-prompt');
+    if (prompt) {
+      let nearest = null;
+      let best = Infinity;
+      for (let i = 0; i < AVATAR_SPOTS.length; i++) {
+        const s = AVATAR_SPOTS[i];
+        const d = Math.hypot(data.x - s.x, data.z - s.z);
+        if (d < s.radius && d < best) { best = d; nearest = s; }
+      }
+      if (nearest) {
+        prompt.textContent = `E — ${nearest.verb} ${nearest.label}`;
+        prompt.classList.add('visible');
+      } else {
+        prompt.classList.remove('visible');
+      }
+    }
+
+    const now = performance.now();
+    if (now - lastAvatarSendMs >= 100) {
+      lastAvatarSendMs = now;
+      if (typeof socket !== 'undefined' && socket && socket.connected && currentRoomId) {
+        socket.emit('avatar_update', {
+          x: Math.round(data.x * 10) / 10,
+          z: Math.round(data.z * 10) / 10,
+          yaw: Math.round(data.yaw * 100) / 100,
+          mode: 'roam'
+        });
+      }
+    }
+  }
+}
+
+/** Registra tastiera, joystick touch e pulsanti della modalità taverna. */
+function setupAvatarControls() {
+  const isTyping = (e) => {
+    const tag = e.target && e.target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (isTyping(e)) return;
+    const key = e.key.toLowerCase();
+    if (key === 'm') { toggleRoamMode(); return; }
+    if (key === 'e') { tryAvatarInteract(); return; }
+    if (key === 'w' || key === 'arrowup') AVATAR_KEYS.up = true;
+    if (key === 's' || key === 'arrowdown') AVATAR_KEYS.down = true;
+    if (key === 'a' || key === 'arrowleft') AVATAR_KEYS.left = true;
+    if (key === 'd' || key === 'arrowright') AVATAR_KEYS.right = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if (key === 'w' || key === 'arrowup') AVATAR_KEYS.up = false;
+    if (key === 's' || key === 'arrowdown') AVATAR_KEYS.down = false;
+    if (key === 'a' || key === 'arrowleft') AVATAR_KEYS.left = false;
+    if (key === 'd' || key === 'arrowright') AVATAR_KEYS.right = false;
+  });
+  window.addEventListener('blur', () => {
+    AVATAR_KEYS.up = AVATAR_KEYS.down = AVATAR_KEYS.left = AVATAR_KEYS.right = false;
+  });
+
+  const toggleBtn = document.getElementById('btn-toggle-roam');
+  if (toggleBtn) toggleBtn.onclick = () => toggleRoamMode();
+  const exitBtn = document.getElementById('roam-exit-btn');
+  if (exitBtn) exitBtn.onclick = () => toggleRoamMode(false);
+  const actionBtn = document.getElementById('roam-action-btn');
+  if (actionBtn) actionBtn.onclick = () => tryAvatarInteract();
+
+  // Joystick touch: normalization in [-1, 1] sul piano XZ.
+  const base = document.getElementById('roam-joystick');
+  const knob = document.getElementById('roam-joystick-knob');
+  if (base && knob) {
+    const update = (e) => {
+      const rect = base.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let dx = e.clientX - cx;
+      let dy = e.clientY - cy;
+      const max = rect.width * 0.42;
+      const len = Math.hypot(dx, dy);
+      if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      AVATAR_JOY.x = dx / max;
+      AVATAR_JOY.y = dy / max;
+    };
+    base.addEventListener('pointerdown', (e) => {
+      AVATAR_JOY.active = true;
+      base.setPointerCapture(e.pointerId);
+      update(e);
+    });
+    base.addEventListener('pointermove', (e) => { if (AVATAR_JOY.active) update(e); });
+    const end = () => {
+      AVATAR_JOY.active = false;
+      AVATAR_JOY.x = 0;
+      AVATAR_JOY.y = 0;
+      knob.style.transform = 'translate(0, 0)';
+    };
+    base.addEventListener('pointerup', end);
+    base.addEventListener('pointercancel', end);
+  }
+  updateRoamUI();
+}
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -2237,6 +3247,8 @@ function animate() {
 
   // Le quattro torce sono la luce principale della scena.
   updateTorches(time);
+  // Scintille di torce e camino: un solo aggiornamento dei buffer per frame.
+  updateEmbers(delta, time);
 
   // Focolare vivo: due sinusoidi + micro-rumore deterministico, senza allocazioni.
   if (fireplaceLight) {
@@ -2251,11 +3263,12 @@ function animate() {
 
     fireplaceLight.intensity = FIREPLACE_BASE_INTENSITY * Math.max(0.7, flicker + (fireplaceFlicker - 1) * 0.35);
     fireplaceLight.color.setHSL(0.055 + Math.sin(time * 2.4) * 0.006, 0.96, 0.51 + Math.sin(time * 13.7) * 0.018);
-    fireplaceLight.position.x = -45 + Math.sin(time * 4.3) * 0.35 + (fireplaceFlicker - 1) * 0.6;
-    fireplaceLight.position.y = 18 + Math.sin(time * 6.7) * 0.18;
+    fireplaceLight.position.x = HEARTH_POS.x + Math.sin(time * 4.3) * 0.35 + (fireplaceFlicker - 1) * 0.6;
+    fireplaceLight.position.y = HEARTH_POS.y + Math.sin(time * 6.7) * 0.18;
   }
 
   updateTransientEffects(delta);
+  updateGoblinAvatars(delta, time);
   controls.update();
   renderer.render(scene, camera);
 }
@@ -2284,6 +3297,7 @@ function initDefaultPlayersOffline() {
     });
   }
   create3DGeesePawns();
+  syncGoblinAvatars();
   renderPlayersHUD();
   updateTurnHUD();
   updatePawnHUDPositions();
@@ -2292,6 +3306,7 @@ function initDefaultPlayersOffline() {
 // INIZIALIZZAZIONE ALL'AVVIO
 window.addEventListener('DOMContentLoaded', () => {
   initThreeScene();
+  setupAvatarControls();
   updateTurnHUD();
   updatePawnHUDPositions();
   logEvent("Benvenuti al Nobile Gioco dell'Oca 3D! Cliccate 'LANCIA I DADI' per iniziare.");
@@ -3012,6 +4027,8 @@ function renderPlayersHUD() {
   const rack = document.getElementById('players-hud-rack');
   if (!rack) return;
   rack.innerHTML = '';
+  // Con più di 6 giocatori la barra diventa scorrevole: nessun pill viene tagliato.
+  rack.classList.toggle('is-crowded', PLAYERS.length > 6);
   PLAYERS.forEach((p, idx) => {
     const isCurrent = (idx === currentPlayerIdx);
     const pill = document.createElement('div');
@@ -3085,7 +4102,8 @@ function initSocketMultiplayer() {
               partnerId: null,
               hex: colorCfg.hex,
               color: colorCfg.color,
-              cssClass: colorCfg.cssClass
+              cssClass: colorCfg.cssClass,
+              avatar: rp.avatar ? { ...rp.avatar } : undefined
             });
           } else {
             const existing = PLAYERS[idx];
@@ -3093,6 +4111,20 @@ function initSocketMultiplayer() {
               existing.name = rp.name;
               existing.position = rp.position;
               existing.skipTurns = rp.missTurns || 0;
+              if (rp.avatar) {
+                const a = ensureAvatarData(existing, idx);
+                a.mode = rp.avatar.mode || a.mode;
+                a.x = typeof rp.avatar.x === 'number' ? rp.avatar.x : a.x;
+                a.z = typeof rp.avatar.z === 'number' ? rp.avatar.z : a.z;
+                a.yaw = typeof rp.avatar.yaw === 'number' ? rp.avatar.yaw : a.yaw;
+                a.spot = rp.avatar.spot || null;
+                a.drinks = rp.avatar.drinks || 0;
+                if (!roamMode || idx !== getLocalPlayerIndex()) {
+                  a.targetX = a.x;
+                  a.targetZ = a.z;
+                  a.targetYaw = a.yaw;
+                }
+              }
             }
           }
         });
@@ -3100,6 +4132,7 @@ function initSocketMultiplayer() {
         // Ricrea pedine 3D e HUD solo al primo caricamento dello stato stanza
         if (isFirstLoad) {
           create3DGeesePawns();
+          syncGoblinAvatars();
           renderPlayersHUD();
         } else {
           // Aggiorna pedine 3D già esistenti (riconnesione / sincronizzazione posizione)
@@ -3109,6 +4142,7 @@ function initSocketMultiplayer() {
             }
           });
           updatePawnHUDPositions();
+          syncGoblinAvatars();
         }
 
         // Tieni l'indice di turno coerente con il numero di giocatori attuali
@@ -3117,6 +4151,11 @@ function initSocketMultiplayer() {
         }
         updateTurnHUD();
       }
+    });
+
+    // Stato sociale degli avatar: evento leggero, separato dalla partita.
+    socket.on('avatar_state_updated', (data) => {
+      if (data && data.playerId) applyRemoteAvatarState(data.playerId, data.avatar);
     });
 
     socket.on('admin_broadcast_alert', (msg) => {

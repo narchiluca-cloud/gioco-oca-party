@@ -43,6 +43,60 @@ app.get('/health', (req, res) => {
  */
 const rooms = {};
 
+// ============================================================================
+// TAVERNA SOCIALE — stato opzionale e validazione (livello COSMETICO)
+// Questi dati NON toccano mai position, turno, dadi o vittoria.
+// ============================================================================
+const TAVERN_BOUNDS = { minX: -128, maxX: 128, minZ: -106, maxZ: 106 };
+
+// Rettangoli XZ che l'avatar non può attraversare (gli stessi del client).
+const TAVERN_OBSTACLES = [
+  { minX: -82, maxX: 82, minZ: -62, maxZ: 62 },   // tavolo centrale
+  { minX: 26, maxX: 98, minZ: -100, maxZ: -84 },  // bancone
+  { minX: -118, maxX: -100, minZ: -78, maxZ: -62 }, // botte sinistra
+  { minX: 102, maxX: 118, minZ: -76, maxZ: -60 }, // botte destra
+  { minX: -110, maxX: -82, minZ: 34, maxZ: 44 },  // panchina sinistra
+  { minX: 82, maxX: 110, minZ: 34, maxZ: 44 }     // panchina destra
+];
+
+// Punti di interazione: il server verifica la distanza prima di accettare l'azione.
+const TAVERN_SPOTS = [
+  { id: 'bar', x: 62, z: -79, radius: 9 },
+  { id: 'chair-left', x: -96, z: 28, radius: 8 },
+  { id: 'chair-right', x: 96, z: 28, radius: 8 },
+  { id: 'fireplace', x: -48, z: -88, radius: 9 },
+  { id: 'table', x: 0, z: 72, radius: 10 }
+];
+
+// Posti di partenza fuori dal tavolo, uno per ogni giocatore (max 12).
+const DEFAULT_AVATAR_SEATS = [
+  { x: -96, z: -20 }, { x: -96, z: 20 },
+  { x: 96, z: -20 }, { x: 96, z: 20 },
+  { x: -50, z: 72 }, { x: 50, z: 72 },
+  { x: 0, z: 78 }, { x: -40, z: -70 },
+  { x: 40, z: -70 }, { x: 0, z: -76 },
+  { x: -100, z: 52 }, { x: 100, z: 52 }
+];
+
+function createDefaultAvatar(index) {
+  const seat = DEFAULT_AVATAR_SEATS[index % DEFAULT_AVATAR_SEATS.length];
+  return { mode: 'seat', x: seat.x, z: seat.z, yaw: 0, spot: null, drinks: 0 };
+}
+
+function isInsideTavernObstacle(x, z) {
+  return TAVERN_OBSTACLES.some(o =>
+    x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ
+  );
+}
+
+function clampTavernPosition(x, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  x = Math.min(TAVERN_BOUNDS.maxX, Math.max(TAVERN_BOUNDS.minX, x));
+  z = Math.min(TAVERN_BOUNDS.maxZ, Math.max(TAVERN_BOUNDS.minZ, z));
+  if (isInsideTavernObstacle(x, z)) return null;
+  return { x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 };
+}
+
 // Rate Limiting per prevenire Brute-Force sulla password Admin
 const loginAttempts = new Map(); // ip/socketId -> { count, lockedUntil }
 
@@ -178,7 +232,9 @@ io.on('connection', (socket) => {
       name: cleanName,
       position: 0,
       missTurns: 0,
-      isOnline: true
+      isOnline: true,
+      // Campo opzionale: i client vecchi lo ignorano, quelli nuovi lo usano.
+      avatar: createDefaultAvatar(room.players.length)
     };
 
     room.players.push(player);
@@ -215,6 +271,9 @@ io.on('connection', (socket) => {
     // Aggiorna socket id
     player.id = socket.id;
     player.isOnline = true;
+    if (!player.avatar) {
+      player.avatar = createDefaultAvatar(room.players.indexOf(player));
+    }
     socket.join(roomId);
     socket.roomId = roomId;
     socket.sessionToken = sessionToken;
@@ -299,7 +358,11 @@ io.on('connection', (socket) => {
     }
 
     if (action === 'RESET_GAME') {
-      room.players.forEach(p => { p.position = 0; p.missTurns = 0; });
+      room.players.forEach((p, i) => {
+        p.position = 0;
+        p.missTurns = 0;
+        p.avatar = createDefaultAvatar(i); // torna al posto, drink sociali azzerati
+      });
       room.currentTurnIndex = 0;
       io.to(roomId).emit('room_state_updated', room);
       io.to(roomId).emit('admin_broadcast_alert', '👑 L\'Admin ha resettato le posizioni alla partenza!');
@@ -329,6 +392,96 @@ io.on('connection', (socket) => {
     }
 
     if (callback) callback({ success: true });
+  });
+
+  // 7a. MOVIMENTO AVATAR TAVERNA (10 Hz, validato, separato dallo stato partita)
+  socket.on('avatar_update', (data) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    if (!player.avatar) player.avatar = createDefaultAvatar(room.players.indexOf(player));
+
+    const now = Date.now();
+    if (now - (socket.lastAvatarUpdateAt || 0) < 90) return; // max ~10 Hz per client
+    socket.lastAvatarUpdateAt = now;
+
+    const requestedX = Number(data && data.x);
+    const requestedZ = Number(data && data.z);
+    if (!Number.isFinite(requestedX) || !Number.isFinite(requestedZ)) return;
+
+    // Clamp di velocità: nessun teleport. 1.8 unità / 100ms ≈ 18 unità/s.
+    const dx = requestedX - player.avatar.x;
+    const dz = requestedZ - player.avatar.z;
+    const dist = Math.hypot(dx, dz);
+    let nextX = player.avatar.x;
+    let nextZ = player.avatar.z;
+    if (dist > 0.001) {
+      const step = Math.min(dist, 1.8);
+      nextX += (dx / dist) * step;
+      nextZ += (dz / dist) * step;
+    }
+
+    const valid = clampTavernPosition(nextX, nextZ);
+    if (!valid) return;
+
+    player.avatar.x = valid.x;
+    player.avatar.z = valid.z;
+
+    const yaw = Number(data && data.yaw);
+    if (Number.isFinite(yaw)) {
+      player.avatar.yaw = Math.round(Math.atan2(Math.sin(yaw), Math.cos(yaw)) * 100) / 100;
+    }
+    if (data && (data.mode === 'roam' || data.mode === 'seat')) {
+      player.avatar.mode = data.mode;
+    }
+
+    // Evento leggero: solo questo avatar, non l'intera stanza.
+    io.to(roomId).emit('avatar_state_updated', {
+      playerId: player.id,
+      avatar: player.avatar
+    });
+  });
+
+  // 7b. AZIONI SOCIALI (drink/sit/stand): cosmetiche, con cooldown
+  socket.on('avatar_action', (data) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    if (!player.avatar) player.avatar = createDefaultAvatar(room.players.indexOf(player));
+
+    const action = data && data.action;
+    if (action === 'drink') {
+      const spot = TAVERN_SPOTS.find(s => s.id === (data && data.spotId));
+      if (!spot) return;
+      const distance = Math.hypot(player.avatar.x - spot.x, player.avatar.z - spot.z);
+      if (distance > spot.radius + 2) return;
+
+      const now = Date.now();
+      if (now - (player.avatar.lastDrinkAt || 0) < 1800) return; // cooldown anti-spam
+      player.avatar.lastDrinkAt = now;
+      player.avatar.drinks = (player.avatar.drinks || 0) + 1;
+      player.avatar.spot = spot.id;
+    } else if (action === 'sit') {
+      player.avatar.mode = 'seat';
+      player.avatar.spot = (data && data.spotId) || null;
+    } else if (action === 'stand') {
+      player.avatar.mode = 'roam';
+      player.avatar.spot = null;
+    } else {
+      return;
+    }
+
+    io.to(roomId).emit('avatar_state_updated', {
+      playerId: player.id,
+      avatar: player.avatar,
+      action
+    });
   });
 
   // 7. DISCONNESSIONE SOCKET
