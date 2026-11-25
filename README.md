@@ -18,11 +18,12 @@ Un'esperienza web 3D interattiva creata con **Three.js**, grafica in stile **leg
 - **4 Oche Intagliate**: Miniature 3D colorate (Rosso ciliegia, Giallo miele, Verde bosco, Blu oltremare) con rotazione e animazione a balzi su curve paraboliche.
 
 ### 1b. 🚶 Modalità Taverna (avatar goblin)
-- Ogni giocatore ha anche un **goblin con robe medievali** che vive nell'ostello attorno al tavolo.
-- Premi **🚶 Esplora** (o `M`) per passare alla vista third-person: **WASD** per muoverti, **E** per interagire, `M` per tornare al tavolo.
+- Ogni giocatore ha anche un **personaggio medievale** che vive nell'ostello attorno al tavolo: **1/3 goblin, 1/3 cavalieri, 1/3 principesse** (in base all'ordine di ingresso), tutti con robe e dettagli procedurali.
+- Premi il **pulsante flottante 🚶 Personaggio** a schermo (oppure **🚶 Esplora** nella barra, o `M`) per passare alla vista third-person: **WASD** per muoverti (sincronizzato con la vista: W segui sempre la direzione della camera), **E** per interagire, `M` per tornare al tavolo. Su mobile il pulsante è grande e si preme con il dito.
 - Su mobile compaiono **joystick** e pulsante **🍺**; la stazione dadi resta sempre utilizzabile.
 - Puoi avvicinarti a **bancone, panchine, camino e tavolo** per drink sociali. Sono eventi **cosmetici e autoritativi**: non modificano posizione, turno, dadi o vittoria.
-- Fino a **12 goblin** contemporanei, sincronizzati via Socket.io con evento dedicato a 10 Hz (rate-limit e validazione lato server).
+- Fino a **12 personaggi** contemporanei, sincronizzati via Socket.io con evento dedicato a 10 Hz (rate-limit e validazione lato server).
+- Rendering **toon/stylized** con contorno a inchiostro, rig articolato, **animation blending** tra idle/camminata/interazione e **IK** per mani e piedi al bancone o alle panchine; indicatori di prossimità luminosi e bicchiere animato durante l'ordine.
 
 ### 2. 🍻 Modalità "Ubriaconi" & Domande Scomode
 - **Contatori Live in HUD**: Tracciamento in tempo reale di birre (`🍺 sorsi`) e cicchetti (`🥃 shot`) consumati da ogni oca.

@@ -38,6 +38,10 @@ const TILE_MESHES = [];
 const PAWN_MESHES = [];
 const GOBLIN_AVATARS = []; // avatar sociali nella taverna, allineati a PLAYERS
 
+// Il tavolo è sollevato da terra: tutti gli oggetti sopra il piano si alzano
+// insieme ai loro gruppi, mentre gambe e ostello restano a livello pavimento.
+const TABLE_RAISE = 4.5;
+
 // --- TAVERNA SOCIALE: costanti uguali a quelle validate dal server ---
 const AVATAR_BOUNDS = { minX: -128, maxX: 128, minZ: -106, maxZ: 106 };
 const AVATAR_OBSTACLES = [
@@ -68,6 +72,11 @@ const AVATAR_KEYS = { up: false, down: false, left: false, right: false };
 const AVATAR_JOY = { active: false, x: 0, y: 0 };
 const AVATAR_TMP_TARGET = new THREE.Vector3();
 const AVATAR_TMP_DELTA = new THREE.Vector3();
+const AVATAR_TMP_CAMDIR = new THREE.Vector3();
+const AVATAR_TMP_FORWARD = new THREE.Vector3();
+const AVATAR_TMP_RIGHT = new THREE.Vector3();
+const AVATAR_TMP_MOVE = new THREE.Vector3();
+const AVATAR_UP = new THREE.Vector3(0, 1, 0);
 let roamMode = false;
 let boardCameraSnapshot = null;
 let lastAvatarSendMs = 0;
@@ -334,7 +343,8 @@ function initThreeScene() {
 
   // Telecamera
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-  camera.position.set(0, 52, 62); // Vista isometrica alta sul tabellone
+  // Vista isometrica alta, ricalibrata sul tavolo sollevato.
+  camera.position.set(0, 52 + TABLE_RAISE * 0.4, 62);
 
   // Renderer con ombre soffuse e ACES Tonemapping
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -361,7 +371,7 @@ function initThreeScene() {
   controls.minDistance = 25;
   // La camera resta dentro le pareti dell'ostello: nessun muro può coprire il tavolo.
   controls.maxDistance = 104;
-  controls.target.set(0, 0, 0);
+  controls.target.set(0, TABLE_RAISE * 0.65, 0);
 
   // Luci della Taverna
   setupLighting();
@@ -394,6 +404,12 @@ function initThreeScene() {
   createTableTorches();
   create3DGeesePawns();
   create3DDice();
+
+  // Solleva di colpo tutto ciò che sta sopra il piano: tavolo, tessere,
+  // miniature, dadi e scenografie del tabellone. Le gambe restano a terra.
+  [boardGroup, scenicsGroup, tilesGroup, pawnsGroup, diceGroup].forEach(g => {
+    if (g) g.position.y = TABLE_RAISE;
+  });
 
   // Resize Handler
   window.addEventListener('resize', onWindowResize);
@@ -439,7 +455,7 @@ const TORCH_LAYOUT = [
 ];
 
 function createTableTorches() {
-  const TABLE_TOP_Y = -0.1; // piano del tavolo (Box 160x4 centrata a y=-2.1)
+  const TABLE_TOP_Y = -0.1 + TABLE_RAISE; // piano del tavolo sollevato
   const FLAME_Y = 14.6;     // altezza della fiamma sopra il piano
   // Su mobile shadow map più piccole: 4 torce = 4 passaggi di profondità per frame.
   const shadowSize = window.innerWidth < 860 ? 512 : 1024;
@@ -545,7 +561,7 @@ function createTableTorches() {
     // al centro resta ~1x l'albedo, mentre ai bordi ogni torcia crea la sua pozza.
     const light = new THREE.SpotLight(0xffa14d, 0.95, 160, 1.05, 0.6, 1.9);
     light.position.set(cfg.x, TABLE_TOP_Y + FLAME_Y, cfg.z);
-    light.target.position.set(cfg.aimX, 1.6, cfg.aimZ);
+    light.target.position.set(cfg.aimX, 1.6 + TABLE_RAISE, cfg.aimZ);
     light.castShadow = true;
     light.shadow.mapSize.set(shadowSize, shadowSize);
     light.shadow.camera.near = 4;
@@ -1062,6 +1078,41 @@ function createRusticTableAndBoard() {
   tableMesh.position.y = -2.1;
   tableMesh.receiveShadow = true;
   boardGroup.add(tableMesh);
+
+  // --- GAMBE DEL TAVOLO (restano a terra, NON vengono sollevate) ---
+  // Il piano sale di TABLE_RAISE, quindi le gambe vanno dal pavimento (-4.25)
+  // al nuovo bordo inferiore (~0.4). Quattro montanti + traverse di rinforzo.
+  const legGeo = new THREE.BoxGeometry(4.6, 5.0, 4.6);
+  const footGeo = new THREE.BoxGeometry(5.2, 0.5, 5.2);
+  const stretchGeo = new THREE.BoxGeometry(138, 1.2, 1.8);
+  const stretchSideGeo = new THREE.BoxGeometry(1.8, 1.2, 98);
+  const legMat = new THREE.MeshStandardMaterial({
+    map: tableTexture, bumpMap: tableTexture, bumpScale: 0.04,
+    color: 0xa88361, roughness: 0.78, metalness: 0.03
+  });
+  const ironFootMat = new THREE.MeshStandardMaterial({ color: 0x241b16, roughness: 0.5, metalness: 0.7 });
+  [-68, 68].forEach(x => {
+    [-50, 50].forEach(z => {
+      const leg = new THREE.Mesh(legGeo, legMat);
+      leg.position.set(x, -1.75, z);
+      leg.castShadow = true;
+      tavernGroup.add(leg);
+
+      const foot = new THREE.Mesh(footGeo, ironFootMat);
+      foot.position.set(x, -4.0, z);
+      tavernGroup.add(foot);
+    });
+  });
+  [-50, 50].forEach(z => {
+    const stretch = new THREE.Mesh(stretchGeo, legMat);
+    stretch.position.set(0, -3.2, z);
+    tavernGroup.add(stretch);
+  });
+  [-68, 68].forEach(x => {
+    const stretch = new THREE.Mesh(stretchSideGeo, legMat);
+    stretch.position.set(x, -3.2, 0);
+    tavernGroup.add(stretch);
+  });
 
   // Il Tabellone del Gioco dell'Oca (Cornice lignea con bordo rialzato)
   const boardBaseGeo = new THREE.BoxGeometry(78, 2.5, 56);
@@ -1624,43 +1675,117 @@ const AVATAR_FLOOR_Y = -4.2;
 
 function getGoblinShared() {
   if (goblinShared) return goblinShared;
+
+  // Rampa toon a 4 step: ombreggiature nette ma calibrate sul legno/taverna.
+  const gradient = new THREE.DataTexture(
+    new Uint8Array([
+      72, 72, 72, 255,
+      142, 142, 142, 255,
+      214, 214, 214, 255,
+      255, 255, 255, 255
+    ]), 4, 1, THREE.RGBAFormat
+  );
+  gradient.minFilter = THREE.NearestFilter;
+  gradient.magFilter = THREE.NearestFilter;
+  gradient.generateMipmaps = false;
+  gradient.needsUpdate = true;
+
+  const toon = (color, extra = {}) => new THREE.MeshToonMaterial(
+    Object.assign({ color, gradientMap: gradient }, extra)
+  );
+
   goblinShared = {
+    gradientMap: gradient,
     geo: {
+      // Comuni
+      head: new THREE.SphereGeometry(0.62, 10, 8),
+      eye: new THREE.SphereGeometry(0.09, 6, 5),
+      limb: new THREE.CylinderGeometry(0.15, 0.15, 1.05, 6),
+      hand: new THREE.SphereGeometry(0.19, 7, 6),
+      shadow: new THREE.CircleGeometry(1.25, 12),
+      nose: new THREE.ConeGeometry(0.17, 0.42, 5),
+      // Goblin
       robe: new THREE.ConeGeometry(1.15, 2.7, 8),
       belt: new THREE.TorusGeometry(1.02, 0.12, 5, 10),
-      head: new THREE.SphereGeometry(0.62, 10, 8),
       ear: new THREE.ConeGeometry(0.24, 0.85, 5),
-      eye: new THREE.SphereGeometry(0.09, 6, 5),
-      hat: new THREE.ConeGeometry(0.82, 1.05, 8),
+      hood: new THREE.ConeGeometry(0.82, 1.05, 8),
       brim: new THREE.TorusGeometry(0.82, 0.1, 5, 10),
-      limb: new THREE.CylinderGeometry(0.15, 0.15, 1.05, 6),
-      shadow: new THREE.CircleGeometry(1.25, 12)
+      dagger: new THREE.BoxGeometry(0.1, 0.7, 0.1),
+      // Cavaliere
+      breastplate: new THREE.CylinderGeometry(0.86, 0.78, 1.5, 8),
+      pauldron: new THREE.SphereGeometry(0.42, 8, 6),
+      visor: new THREE.BoxGeometry(1.05, 0.28, 0.18),
+      plume: new THREE.ConeGeometry(0.22, 1.15, 6),
+      shield: new THREE.CylinderGeometry(0.78, 0.78, 0.16, 8),
+      sword: new THREE.BoxGeometry(0.13, 1.75, 0.09),
+      crossguard: new THREE.BoxGeometry(0.65, 0.11, 0.11),
+      cape: new THREE.ConeGeometry(1.25, 2.6, 8, 1, true, 0, Math.PI),
+      // Principessa
+      skirt: new THREE.ConeGeometry(1.42, 2.25, 10),
+      bodice: new THREE.CylinderGeometry(0.66, 0.52, 1.15, 8),
+      sash: new THREE.TorusGeometry(0.62, 0.09, 5, 10),
+      hair: new THREE.SphereGeometry(0.7, 10, 8),
+      tiara: new THREE.TorusGeometry(0.58, 0.09, 5, 10),
+      jewel: new THREE.SphereGeometry(0.13, 7, 6),
+      crownSpike: new THREE.ConeGeometry(0.13, 0.5, 5)
     },
-    skinMat: new THREE.MeshStandardMaterial({ color: 0x86b36a, roughness: 0.8, metalness: 0.02 }),
-    darkMat: new THREE.MeshStandardMaterial({ color: 0x2b1a10, roughness: 0.78, metalness: 0.05 }),
-    hatMat: new THREE.MeshStandardMaterial({ color: 0x3a2148, roughness: 0.72, metalness: 0.06 }),
+    // Materiali toon condivisi: una sola istanza per tipo, mai per avatar.
+    skinMat: toon(0x86b36a),
+    fairSkinMat: toon(0xf0c9a4),
+    darkMat: toon(0x2b1a10),
+    hatMat: toon(0x3a2148),
+    metalMat: toon(0xb9c2c9),
+    darkMetalMat: toon(0x5d6670),
+    goldMat: toon(0xe5b342),
+    hairMat: toon(0x8b5a2b),
+    gemMat: toon(0x6fb7ff, { emissive: 0x1b4a7a, emissiveIntensity: 0.45 }),
     eyeMat: new THREE.MeshBasicMaterial({ color: 0x120c08 }),
     shadowMat: new THREE.MeshBasicMaterial({
       color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false
     }),
-    robeMats: new Map()
+    // Contorno "inchiostro": backward-face leggermente ingrandito.
+    outlineMat: new THREE.MeshBasicMaterial({ color: 0x160c06, side: THREE.BackSide }),
+    gobletGeo: new THREE.CylinderGeometry(0.19, 0.14, 0.42, 8),
+    robeMats: new Map(),
+    capeMats: new Map()
   };
   return goblinShared;
+}
+
+function getCapeMaterial(colorHex) {
+  const shared = getGoblinShared();
+  const key = String(colorHex);
+  if (!shared.capeMats.has(key)) {
+    shared.capeMats.set(key, new THREE.MeshToonMaterial({
+      color: colorHex, gradientMap: shared.gradientMap, side: THREE.DoubleSide
+    }));
+  }
+  return shared.capeMats.get(key);
+}
+
+/** Tipo sociale in base all'indice: 1/3 goblin, 1/3 cavalieri, 1/3 principesse. */
+function getAvatarType(index) {
+  const t = index % 3;
+  return t === 0 ? 'goblin' : (t === 1 ? 'knight' : 'princess');
+}
+
+function getAvatarTypeIcon(type) {
+  return type === 'knight' ? '🛡️' : (type === 'princess' ? '👑' : '👺');
 }
 
 function getRobeMaterial(colorHex) {
   const shared = getGoblinShared();
   const key = String(colorHex);
   if (!shared.robeMats.has(key)) {
-    shared.robeMats.set(key, new THREE.MeshStandardMaterial({
-      color: colorHex, roughness: 0.72, metalness: 0.03, envMapIntensity: 0.5
+    shared.robeMats.set(key, new THREE.MeshToonMaterial({
+      color: colorHex, gradientMap: shared.gradientMap
     }));
   }
   return shared.robeMats.get(key);
 }
 
-/** Etichetta con il nome del giocatore, sempre rivolta alla camera (Sprite). */
-function createAvatarNameTag(name) {
+/** Etichetta con nome e icona del ruolo, sempre rivolta alla camera (Sprite). */
+function createAvatarNameTag(name, type) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 64;
@@ -1676,7 +1801,8 @@ function createAvatarNameTag(name) {
   ctx.font = 'bold 30px "Cinzel", serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const safeName = String(name || 'Goblin').slice(0, 18);
+  const icon = getAvatarTypeIcon(type);
+  const safeName = `${icon} ${String(name || 'Giocatore').slice(0, 14)}`;
   ctx.fillText(safeName, 128, 34);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -1690,74 +1816,298 @@ function createAvatarNameTag(name) {
   return sprite;
 }
 
-/** Crea un goblin low-poly con robe medievale e colori del giocatore. */
+/**
+ * Crea un avatar sociales procedurale: 1/3 goblin, 1/3 cavalieri, 1/3 principesse.
+ * Tutti condividono lo stesso rig di animazione (braccia/gambe) usato da
+ * updateGoblinAvatars, quindi il movimento resta identico per ogni tipo.
+ */
 function createGoblinAvatar(player, index) {
   const shared = getGoblinShared();
+  const type = getAvatarType(index);
+  const colorMat = getRobeMaterial(player.color);
   const root = new THREE.Group();
-  root.scale.setScalar(1.15);
+  root.scale.setScalar(3.0); // personaggi giganti accanto al tavolo rialzato
 
-  const robe = new THREE.Mesh(shared.geo.robe, getRobeMaterial(player.color));
-  robe.position.y = 1.4;
-  robe.castShadow = false;
-  root.add(robe);
+  const add = (mesh) => { root.add(mesh); return mesh; };
+  const swayParts = [];
 
-  const belt = new THREE.Mesh(shared.geo.belt, shared.darkMat);
-  belt.rotation.x = Math.PI / 2;
-  belt.position.y = 1.0;
-  root.add(belt);
+  // Contorno a inchiostro: solo le sagome principali, non ogni dettaglio.
+  const outline = (mesh, scale = 1.055) => {
+    const edge = new THREE.Mesh(mesh.geometry, shared.outlineMat);
+    edge.scale.setScalar(scale);
+    mesh.add(edge);
+    return mesh;
+  };
 
-  const head = new THREE.Mesh(shared.geo.head, shared.skinMat);
-  head.position.y = 3.05;
-  root.add(head);
+  // --- Rig con pivot articolati: niente compenetrazioni alle spalle/anche ---
+  const armMat = type === 'princess' ? shared.fairSkinMat : colorMat;
+  const legMat = type === 'goblin' ? shared.darkMat : shared.darkMetalMat;
+  const handMat = type === 'knight' ? shared.metalMat : armMat;
 
-  [-1, 1].forEach(side => {
-    const ear = new THREE.Mesh(shared.geo.ear, shared.skinMat);
-    ear.position.set(side * 0.62, 3.12, 0);
-    ear.rotation.z = side * 1.05;
-    root.add(ear);
-    const eye = new THREE.Mesh(shared.geo.eye, shared.eyeMat);
-    eye.position.set(side * 0.22, 3.08, 0.55);
-    root.add(eye);
-  });
+  function makeArm(side) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 1.0, 2.35, 0);
+    root.add(pivot);
+    pivot.rotation.z = side * -0.12; // braccia leggermente aperte
 
-  const hat = new THREE.Mesh(shared.geo.hat, shared.hatMat);
-  hat.position.y = 4.05;
-  root.add(hat);
-  const brim = new THREE.Mesh(shared.geo.brim, shared.hatMat);
-  brim.rotation.x = Math.PI / 2;
-  brim.position.y = 3.62;
-  root.add(brim);
+    const upper = new THREE.Mesh(shared.geo.limb, armMat);
+    upper.position.y = -0.52;
+    pivot.add(upper);
 
-  const leftArm = new THREE.Mesh(shared.geo.limb, getRobeMaterial(player.color));
-  leftArm.position.set(-1.0, 1.95, 0);
-  leftArm.rotation.z = 0.28;
-  root.add(leftArm);
-  const rightArm = leftArm.clone();
-  rightArm.position.x = 1.0;
-  rightArm.rotation.z = -0.28;
-  root.add(rightArm);
+    const elbow = new THREE.Group();
+    elbow.position.y = -1.0;
+    pivot.add(elbow);
 
-  const leftLeg = new THREE.Mesh(shared.geo.limb, shared.darkMat);
-  leftLeg.position.set(-0.36, 0.42, 0);
-  root.add(leftLeg);
-  const rightLeg = leftLeg.clone();
-  rightLeg.position.x = 0.36;
-  root.add(rightLeg);
+    const fore = new THREE.Mesh(shared.geo.limb, armMat);
+    fore.position.y = -0.46;
+    fore.scale.y = 0.88;
+    elbow.add(fore);
 
-  const shadow = new THREE.Mesh(shared.geo.shadow, shared.shadowMat);
+    const hand = new THREE.Mesh(shared.geo.hand, handMat);
+    hand.position.y = -0.94;
+    elbow.add(hand);
+    return { pivot, elbow, hand };
+  }
+
+  function makeLeg(side) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.36, 0.92, 0);
+    root.add(pivot);
+    const leg = new THREE.Mesh(shared.geo.limb, legMat);
+    leg.position.y = -0.45;
+    pivot.add(leg);
+    const foot = new THREE.Mesh(shared.geo.hand, shared.darkMat);
+    foot.scale.set(1.1, 0.55, 1.5);
+    foot.position.set(0, -0.96, 0.14);
+    pivot.add(foot);
+    return pivot;
+  }
+
+  const leftArm = makeArm(-1);
+  const rightArm = makeArm(1);
+  const leftLeg = makeLeg(-1);
+  const rightLeg = makeLeg(1);
+
+  // Bicchiere "della casa": nascosto finché non si ordina al bancone.
+  const goblet = new THREE.Mesh(shared.gobletGeo, shared.goldMat);
+  goblet.position.set(0, -1.28, 0.18);
+  goblet.visible = false;
+  rightArm.elbow.add(goblet);
+
+  // Alone dorato di prossimità: si accende vicino a un punto di interazione.
+  const highlight = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: getSparkleTexture(), color: 0xffd966, transparent: true,
+    opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  highlight.scale.set(7, 7, 1);
+  highlight.position.y = 3.6;
+  root.add(highlight);
+
+  let robe = null;
+  let head = null;
+
+  if (type === 'goblin') {
+    // --- GOBLIN: robe intagliata, orecchie a punta, cappuccio e pugnale ---
+    robe = add(new THREE.Mesh(shared.geo.robe, colorMat));
+    robe.position.y = 1.45;
+    outline(robe);
+
+    const belt = add(new THREE.Mesh(shared.geo.belt, shared.darkMat));
+    belt.rotation.x = Math.PI / 2;
+    belt.position.y = 1.05;
+
+    head = add(new THREE.Mesh(shared.geo.head, shared.skinMat));
+    head.position.y = 3.05;
+    outline(head);
+
+    const nose = add(new THREE.Mesh(shared.geo.nose, shared.skinMat));
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 2.98, 0.62);
+
+    [-1, 1].forEach(side => {
+      const ear = add(new THREE.Mesh(shared.geo.ear, shared.skinMat));
+      ear.position.set(side * 0.62, 3.12, 0);
+      ear.rotation.z = side * 1.05;
+      const eye = add(new THREE.Mesh(shared.geo.eye, shared.eyeMat));
+      eye.position.set(side * 0.22, 3.08, 0.55);
+      const brow = add(new THREE.Mesh(shared.geo.dagger, shared.darkMat));
+      brow.scale.set(1.5, 0.25, 1);
+      brow.position.set(side * 0.23, 3.28, 0.53);
+      brow.rotation.z = side * 0.2;
+    });
+
+    const hood = add(new THREE.Mesh(shared.geo.hood, shared.hatMat));
+    hood.position.y = 4.05;
+    outline(hood);
+    const brim = add(new THREE.Mesh(shared.geo.brim, shared.hatMat));
+    brim.rotation.x = Math.PI / 2;
+    brim.position.y = 3.62;
+
+    const dagger = add(new THREE.Mesh(shared.geo.dagger, shared.metalMat));
+    dagger.position.set(1.06, 1.18, 0.24);
+    dagger.rotation.z = -0.15;
+  } else if (type === 'knight') {
+    // --- CAVALIERE: corazza, spalliere, elmo con visiera, scudo e spada ---
+    robe = add(new THREE.Mesh(shared.geo.breastplate, shared.metalMat));
+    robe.position.y = 2.0;
+    outline(robe);
+
+    const belt = add(new THREE.Mesh(shared.geo.belt, shared.goldMat));
+    belt.rotation.x = Math.PI / 2;
+    belt.position.y = 1.18;
+
+    head = add(new THREE.Mesh(shared.geo.head, shared.metalMat));
+    head.position.y = 3.05;
+    outline(head);
+    const visor = add(new THREE.Mesh(shared.geo.visor, shared.darkMetalMat));
+    visor.position.set(0, 2.98, 0.56);
+
+    const plume = add(new THREE.Mesh(shared.geo.plume, colorMat));
+    plume.position.set(0, 3.85, -0.05);
+    plume.rotation.z = 0.22;
+    plume.userData.baseRotZ = plume.rotation.z;
+    swayParts.push(plume);
+
+    [-1, 1].forEach(side => {
+      const pauldron = add(new THREE.Mesh(shared.geo.pauldron, shared.metalMat));
+      pauldron.position.set(side * 0.95, 2.55, 0);
+      pauldron.scale.set(1.0, 0.68, 0.92);
+    });
+
+    const shield = add(new THREE.Mesh(shared.geo.shield, colorMat));
+    shield.rotation.x = Math.PI / 2;
+    shield.position.set(-1.42, 1.95, 0.38);
+    outline(shield, 1.06);
+    const shieldRim = add(new THREE.Mesh(shared.geo.belt, shared.goldMat));
+    shieldRim.position.set(-1.42, 1.95, 0.47);
+
+    const sword = add(new THREE.Mesh(shared.geo.sword, shared.metalMat));
+    sword.position.set(1.32, 2.35, 0.22);
+    const guard = add(new THREE.Mesh(shared.geo.crossguard, shared.goldMat));
+    guard.position.set(1.32, 1.5, 0.22);
+
+    const cape = add(new THREE.Mesh(shared.geo.cape, getCapeMaterial(player.color)));
+    cape.position.set(0, 2.0, -0.42);
+    cape.rotation.y = Math.PI * 0.15;
+    cape.userData.baseRotZ = cape.rotation.z;
+    swayParts.push(cape);
+  } else {
+    // --- PRINCIPESSA: gonna a campana, corpetto, tiara e tre punte d'oro ---
+    robe = add(new THREE.Mesh(shared.geo.skirt, colorMat));
+    robe.position.y = 1.35;
+    outline(robe);
+
+    const bodice = add(new THREE.Mesh(shared.geo.bodice, colorMat));
+    bodice.position.y = 2.45;
+    const sash = add(new THREE.Mesh(shared.geo.sash, shared.goldMat));
+    sash.rotation.x = Math.PI / 2;
+    sash.position.y = 2.0;
+
+    head = add(new THREE.Mesh(shared.geo.head, shared.fairSkinMat));
+    head.position.y = 3.25;
+    outline(head);
+
+    const hair = add(new THREE.Mesh(shared.geo.hair, shared.hairMat));
+    hair.position.set(0, 3.38, -0.28);
+    hair.scale.set(1.08, 1.05, 1.02);
+    outline(hair, 1.05);
+    [-1, 1].forEach(side => {
+      const lock = add(new THREE.Mesh(shared.geo.limb, shared.hairMat));
+      lock.position.set(side * 0.54, 2.92, -0.05);
+      lock.scale.set(1.5, 1.9, 1.4);
+      const eye = add(new THREE.Mesh(shared.geo.eye, shared.eyeMat));
+      eye.position.set(side * 0.22, 3.27, 0.55);
+    });
+
+    const tiara = add(new THREE.Mesh(shared.geo.tiara, shared.goldMat));
+    tiara.rotation.x = Math.PI / 2;
+    tiara.position.y = 3.72;
+    [-0.38, 0, 0.38].forEach((x, i) => {
+      const spike = add(new THREE.Mesh(shared.geo.crownSpike, shared.goldMat));
+      spike.position.set(x, 3.95 + (i === 1 ? 0.12 : 0), 0);
+    });
+    const jewel = add(new THREE.Mesh(shared.geo.jewel, shared.gemMat));
+    jewel.position.set(0, 3.7, 0.58);
+  }
+
+  // Ombra a terra e nome.
+  const shadow = add(new THREE.Mesh(shared.geo.shadow, shared.shadowMat));
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.03;
-  root.add(shadow);
 
-  const nameTag = createAvatarNameTag(player.name);
-  root.add(nameTag);
+  const nameTag = add(createAvatarNameTag(player.name, type));
 
   goblinsGroup.add(root);
   return {
-    root, robe, head, leftArm, rightArm, leftLeg, rightLeg, nameTag,
-    phase: index * 1.7,
-    lastName: player.name
+    root, type, robe, head,
+    leftArm: leftArm.pivot, rightArm: rightArm.pivot,
+    leftElbow: leftArm.elbow, rightElbow: rightArm.elbow,
+    leftHand: leftArm.hand, rightHand: rightArm.hand,
+    leftLeg, rightLeg, goblet, highlight,
+    swayParts, nameTag, phase: index * 1.7, lastName: player.name,
+    // Stato animazione con blending: sempre inizializzato, mai undefined.
+    animState: 'idle',
+    interactTimer: 0,
+    gesture: 0,
+    blend: { idle: 1, walk: 0, interact: 0 }
   };
+}
+
+/**
+ * Blending: imposta lo stato desiderato; le transizioni reali sono gestite
+ * da updateAvatarBlending con un easing esponenziale (same-frame safe).
+ */
+function setAvatarAnimState(avatar, state) {
+  if (!avatar || avatar.animState === state) return;
+  avatar.animState = state;
+  if (state === 'interact') {
+    avatar.interactTimer = 1.25;
+    avatar.gesture = Math.random() < 0.5 ? 0 : 1;
+  }
+}
+
+/** Interpola i pesi idle/walk/interact verso lo stato corrente. */
+function updateAvatarBlending(avatar, dt) {
+  const b = avatar.blend;
+  const k = 1 - Math.exp(-7 * dt);
+  const targetIdle = avatar.animState === 'idle' ? 1 : 0;
+  const targetWalk = avatar.animState === 'walk' ? 1 : 0;
+  const targetInteract = avatar.animState === 'interact' ? 1 : 0;
+  b.idle += (targetIdle - b.idle) * k;
+  b.walk += (targetWalk - b.walk) * k;
+  b.interact += (targetInteract - b.interact) * k;
+  return b;
+}
+
+/**
+ * IK analitico a due segmenti nel piano YZ. Il braccio pende lungo -Y:
+ * phi è l'angolo del bersaglio rispetto alla spalla, beta la flessione del gomito.
+ * Nessuna allocazione: adatto al render loop.
+ */
+function solveTwoBoneIK(pivot, elbow, dy, dz, upper, lower) {
+  let dist = Math.hypot(dy, dz);
+  const maxReach = upper + lower - 0.02;
+  const minReach = Math.abs(upper - lower) + 0.02;
+  dist = Math.min(maxReach, Math.max(minReach, dist));
+  const phi = Math.atan2(dz, -dy);
+  const cosBeta = (dist * dist - upper * upper - lower * lower) / (2 * upper * lower);
+  const beta = Math.acos(Math.min(1, Math.max(-1, cosBeta)));
+  pivot.rotation.x = phi - Math.atan2(lower * Math.sin(beta), upper + lower * Math.cos(beta));
+  elbow.rotation.x = beta;
+}
+
+/** Gamba singola: punta il piede verso un punto locale (dy, dz). */
+function solveLegAim(pivot, dy, dz) {
+  pivot.rotation.x = Math.atan2(dz, -dy);
+}
+
+/** Dove deve arrivare la mano in base al punto di interazione. */
+function getAvatarTarget(spotId) {
+  if (spotId === 'bar') return { armDy: -0.35, armDz: 1.0, legDy: -0.9, legDz: 0.05, sit: false };
+  if (spotId === 'chair-left' || spotId === 'chair-right') {
+    return { armDy: -0.55, armDz: 0.35, legDy: -0.25, legDz: 0.85, sit: true };
+  }
+  return { armDy: -0.5, armDz: 0.55, legDy: -0.9, legDz: 0.05, sit: false };
 }
 
 /** Aggiunge i campi avatar ai player che non li hanno (retrocompatibilità). */
@@ -1786,16 +2136,20 @@ function syncGoblinAvatars() {
   }
   PLAYERS.forEach((p, idx) => {
     const data = ensureAvatarData(p, idx);
-    if (!GOBLIN_AVATARS[idx]) {
+    const expectedType = getAvatarType(idx);
+    const current = GOBLIN_AVATARS[idx];
+
+    // Se cambia il tipo (es. kick che sposta gli indici), ricreo il modello.
+    if (!current || current.type !== expectedType) {
+      if (current && current.root) goblinsGroup.remove(current.root);
       GOBLIN_AVATARS[idx] = createGoblinAvatar(p, idx);
-    } else if (GOBLIN_AVATARS[idx].lastName !== p.name) {
-      // Il nome è cambiato: sostituisco solo l'etichetta.
-      const oldTag = GOBLIN_AVATARS[idx].nameTag;
-      GOBLIN_AVATARS[idx].root.remove(oldTag);
-      const tag = createAvatarNameTag(p.name);
-      GOBLIN_AVATARS[idx].root.add(tag);
-      GOBLIN_AVATARS[idx].nameTag = tag;
-      GOBLIN_AVATARS[idx].lastName = p.name;
+    } else if (current.lastName !== p.name) {
+      // Solo il nome è cambiato: sostituisco l'etichetta.
+      current.root.remove(current.nameTag);
+      const tag = createAvatarNameTag(p.name, expectedType);
+      current.root.add(tag);
+      current.nameTag = tag;
+      current.lastName = p.name;
     }
     GOBLIN_AVATARS[idx].root.position.set(data.x, AVATAR_FLOOR_Y, data.z);
     GOBLIN_AVATARS[idx].root.rotation.y = data.yaw || 0;
@@ -2392,7 +2746,7 @@ function spawnTileBurst(tile, type) {
     sizeAttenuation: true
   });
   const points = new THREE.Points(geometry, material);
-  points.position.set(tile.x, tile.y + 0.32, tile.z);
+  points.position.set(tile.x, tile.y + TABLE_RAISE + 0.32, tile.z);
   points.frustumCulled = false;
   scene.add(points);
   TRANSIENT_EFFECTS.push({
@@ -2416,7 +2770,7 @@ function spawnTileBurst(tile, type) {
   });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = -Math.PI / 2;
-  ring.position.set(tile.x, tile.y + 0.27, tile.z);
+  ring.position.set(tile.x, tile.y + TABLE_RAISE + 0.27, tile.z);
   scene.add(ring);
   TRANSIENT_EFFECTS.push({ kind: 'ring', object: ring, age: 0, duration: 0.72 });
 
@@ -2867,17 +3221,18 @@ function setCameraView(preset) {
 
   if (preset === 'top') {
     // Vista Zenitale dall'alto
-    animateCameraPosition(0, 85, 4, 0, 0, 0);
+    animateCameraPosition(0, 85 + TABLE_RAISE, 4, 0, TABLE_RAISE, 0);
     document.getElementById('cam-btn-top').classList.add('active');
   } else if (preset === 'iso') {
     // Prospettiva isometrica classica
-    animateCameraPosition(0, 52, 62, 0, 0, 0);
+    animateCameraPosition(0, 52 + TABLE_RAISE * 0.4, 62, 0, TABLE_RAISE * 0.65, 0);
     document.getElementById('cam-btn-iso').classList.add('active');
   } else if (preset === 'pawn') {
     // Zoom ravvicinato sulla pedina di turno
     const curr = PLAYERS[currentPlayerIdx];
     const tile = TILE_DATA[curr.position] || TILE_DATA[0];
-    animateCameraPosition(tile.x, tile.y + 16, tile.z + 18, tile.x, tile.y, tile.z);
+    const ty = tile.y + TABLE_RAISE;
+    animateCameraPosition(tile.x, ty + 16, tile.z + 18, tile.x, ty, tile.z);
     document.getElementById('cam-btn-pawn').classList.add('active');
   }
 }
@@ -2989,8 +3344,8 @@ function toggleRoamMode(force) {
     data.mode = 'roam';
     data.targetX = data.x;
     data.targetZ = data.z;
-    camera.position.set(data.x, 20, data.z + 26);
-    controls.target.set(data.x, 3, data.z);
+    camera.position.set(data.x, 40, data.z + 50);
+    controls.target.set(data.x, 8, data.z);
     controls.minDistance = 8;
     controls.maxDistance = 48;
     logEvent("🚶 MODALITÀ TAVERNA: muoviti con WASD (o joystick), premi E per interagire, M per tornare al tavolo.", 'special');
@@ -3041,6 +3396,15 @@ function tryAvatarInteract() {
   }
 
   data.spot = nearest.id;
+
+  // Azione dedicata: il personaggio porge la mano e "stringe" il bicchiere.
+  const avatar = GOBLIN_AVATARS[idx];
+  if (avatar) {
+    setAvatarAnimState(avatar, 'interact');
+    avatar.goblet.visible = true;
+    avatar.interactSpot = nearest.id;
+  }
+
   playSound('gulp');
   spawnConfettiBurst('tile');
   logEvent(`🍺 ${player.name} si è preso un drink ${nearest.label}! (Drink sociali: ${(data.drinks || 0) + 1})`);
@@ -3067,25 +3431,37 @@ function updateGoblinAvatars(delta, time) {
     let speed = 0;
 
     if (i === localIdx && roamMode) {
-      let mx = (AVATAR_KEYS.right ? 1 : 0) - (AVATAR_KEYS.left ? 1 : 0);
-      let mz = (AVATAR_KEYS.down ? 1 : 0) - (AVATAR_KEYS.up ? 1 : 0);
+      // Input in coordinate schermo: W = avanti rispetto a dove guarda la camera.
+      let inputForward = (AVATAR_KEYS.up ? 1 : 0) - (AVATAR_KEYS.down ? 1 : 0);
+      let inputRight = (AVATAR_KEYS.right ? 1 : 0) - (AVATAR_KEYS.left ? 1 : 0);
       if (AVATAR_JOY.active) {
-        mx += AVATAR_JOY.x;
-        mz += AVATAR_JOY.y;
+        inputForward += -AVATAR_JOY.y;
+        inputRight += AVATAR_JOY.x;
       }
-      const len = Math.hypot(mx, mz);
-      if (len > 1) { mx /= len; mz /= len; }
+
+      // Proiezione orizzontale della direzione della camera + suo vettore destro.
+      camera.getWorldDirection(AVATAR_TMP_CAMDIR);
+      AVATAR_TMP_FORWARD.set(AVATAR_TMP_CAMDIR.x, 0, AVATAR_TMP_CAMDIR.z);
+      if (AVATAR_TMP_FORWARD.lengthSq() < 0.0001) AVATAR_TMP_FORWARD.set(0, 0, -1);
+      AVATAR_TMP_FORWARD.normalize();
+      AVATAR_TMP_RIGHT.crossVectors(AVATAR_TMP_FORWARD, AVATAR_UP).normalize();
+
+      AVATAR_TMP_MOVE.set(0, 0, 0)
+        .addScaledVector(AVATAR_TMP_FORWARD, inputForward)
+        .addScaledVector(AVATAR_TMP_RIGHT, inputRight);
+      const len = AVATAR_TMP_MOVE.length();
+      if (len > 1) AVATAR_TMP_MOVE.divideScalar(len);
       speed = len > 0.05 ? 14 : 0;
 
       if (speed > 0) {
         // Collisioni asse per asse: scivola lungo gli ostacoli.
-        const stepX = mx * speed * dt;
-        const stepZ = mz * speed * dt;
+        const stepX = AVATAR_TMP_MOVE.x * speed * dt;
+        const stepZ = AVATAR_TMP_MOVE.z * speed * dt;
         if (!isAvatarBlocked(data.x + stepX, data.z)) data.x += stepX;
         if (!isAvatarBlocked(data.x, data.z + stepZ)) data.z += stepZ;
         data.targetX = data.x;
         data.targetZ = data.z;
-        data.targetYaw = Math.atan2(mx, mz);
+        data.targetYaw = Math.atan2(AVATAR_TMP_MOVE.x, AVATAR_TMP_MOVE.z);
       }
     } else {
       // Avatar remoti (o locale fuori dalla modalità): interpolazione morbida.
@@ -3106,20 +3482,64 @@ function updateGoblinAvatars(delta, time) {
     root.position.x = data.x;
     root.position.z = data.z;
 
-    if (speed > 0.25) {
-      avatar.phase += dt * (6 + Math.min(6, speed * 0.5));
-      const swing = Math.sin(avatar.phase) * 0.5;
-      avatar.leftLeg.rotation.x = swing;
-      avatar.rightLeg.rotation.x = -swing;
-      avatar.leftArm.rotation.x = -swing * 0.7;
-      avatar.rightArm.rotation.x = swing * 0.7;
-      root.position.y = AVATAR_FLOOR_Y + Math.abs(Math.sin(avatar.phase)) * 0.12;
+    // --- Animation blending: priorità all'interazione, poi walk/idle ---
+    if (avatar.interactTimer > 0) {
+      avatar.interactTimer -= dt;
+      if (avatar.interactTimer <= 0) {
+        avatar.goblet.visible = false;
+        avatar.interactSpot = null;
+        setAvatarAnimState(avatar, speed > 0.25 ? 'walk' : 'idle');
+      }
     } else {
-      avatar.leftLeg.rotation.x *= Math.exp(-8 * dt);
-      avatar.rightLeg.rotation.x *= Math.exp(-8 * dt);
-      avatar.leftArm.rotation.x *= Math.exp(-8 * dt);
-      avatar.rightArm.rotation.x *= Math.exp(-8 * dt);
-      root.position.y = AVATAR_FLOOR_Y + Math.sin(time * 1.7 + avatar.phase) * 0.04;
+      setAvatarAnimState(avatar, speed > 0.25 ? 'walk' : 'idle');
+    }
+    const blend = updateAvatarBlending(avatar, dt);
+
+    avatar.phase += dt * (0.9 * blend.idle + (6 + Math.min(6, speed * 0.5)) * blend.walk);
+    const swing = Math.sin(avatar.phase);
+    const walkAmp = 0.5 * blend.walk;
+    const idleAmp = 0.05 * blend.idle;
+
+    avatar.leftLeg.rotation.x = swing * walkAmp;
+    avatar.rightLeg.rotation.x = -swing * walkAmp;
+    avatar.leftArm.rotation.x = -swing * walkAmp * 0.75 + Math.sin(time * 1.6 + avatar.phase) * idleAmp;
+    avatar.rightArm.rotation.x = swing * walkAmp * 0.75 - Math.sin(time * 1.6 + avatar.phase) * idleAmp;
+    avatar.leftElbow.rotation.x = 0.12 * blend.idle + 0.18 * blend.walk;
+    avatar.rightElbow.rotation.x = 0.12 * blend.idle + 0.18 * blend.walk;
+
+    if (blend.interact > 0.01) {
+      // IK: mani sul banco/sgabello, piedi orientati al punto di contatto.
+      const target = getAvatarTarget(avatar.interactSpot || 'bar');
+      const progress = 1 - Math.max(0, avatar.interactTimer) / 1.25;
+      const reach = 0.45 + 0.55 * Math.sin(progress * Math.PI);
+      solveTwoBoneIK(avatar.leftArm, avatar.leftElbow, target.armDy, target.armDz * reach, 1.0, 0.9);
+      solveTwoBoneIK(avatar.rightArm, avatar.rightElbow, target.armDy, target.armDz * reach, 1.0, 0.9);
+      solveLegAim(avatar.leftLeg, target.legDy, target.legDz);
+      solveLegAim(avatar.rightLeg, target.legDy, target.legDz);
+      root.position.y = AVATAR_FLOOR_Y - (target.sit ? 1.0 * blend.interact : 0);
+    } else {
+      root.position.y = AVATAR_FLOOR_Y
+        + Math.abs(swing) * 0.12 * blend.walk
+        + Math.sin(time * 1.7 + avatar.phase) * 0.04 * blend.idle;
+    }
+
+    // Alone di prossimità: si accende solo per il giocatore locale in esplorazione.
+    let nearestDist = Infinity;
+    for (let s = 0; s < AVATAR_SPOTS.length; s++) {
+      const spot = AVATAR_SPOTS[s];
+      const d = Math.hypot(data.x - spot.x, data.z - spot.z);
+      if (d < nearestDist) nearestDist = d;
+    }
+    const glowTarget = (i === localIdx && roamMode) ? Math.max(0, 1 - nearestDist / 14) * 0.55 : 0;
+    avatar.highlight.material.opacity += (glowTarget - avatar.highlight.material.opacity) * (1 - Math.exp(-6 * dt));
+
+    // Mantello e piuma d'elmo oscillano con il passo (piccolo dettaglio "vivo").
+    if (avatar.swayParts && avatar.swayParts.length) {
+      for (let s = 0; s < avatar.swayParts.length; s++) {
+        const part = avatar.swayParts[s];
+        const base = part.userData.baseRotZ || 0;
+        part.rotation.z = base + Math.sin(time * 2.6 + avatar.phase + s) * 0.07;
+      }
     }
     root.rotation.y = data.yaw;
   }
@@ -3127,7 +3547,7 @@ function updateGoblinAvatars(delta, time) {
   // La camera segue il goblin locale durante l'esplorazione.
   if (roamMode) {
     const data = ensureAvatarData(PLAYERS[localIdx] || {}, localIdx);
-    AVATAR_TMP_TARGET.set(data.x, 3, data.z);
+    AVATAR_TMP_TARGET.set(data.x, 8, data.z);
     AVATAR_TMP_DELTA.copy(AVATAR_TMP_TARGET).sub(controls.target);
     const k = 1 - Math.exp(-6 * dt);
     controls.target.addScaledVector(AVATAR_TMP_DELTA, k);
@@ -3145,9 +3565,9 @@ function updateGoblinAvatars(delta, time) {
       }
       if (nearest) {
         prompt.textContent = `E — ${nearest.verb} ${nearest.label}`;
-        prompt.classList.add('visible');
+        prompt.classList.add('visible', 'near');
       } else {
-        prompt.classList.remove('visible');
+        prompt.classList.remove('visible', 'near');
       }
     }
 
@@ -3196,6 +3616,8 @@ function setupAvatarControls() {
 
   const toggleBtn = document.getElementById('btn-toggle-roam');
   if (toggleBtn) toggleBtn.onclick = () => toggleRoamMode();
+  const characterFab = document.getElementById('character-fab');
+  if (characterFab) characterFab.onclick = () => toggleRoamMode();
   const exitBtn = document.getElementById('roam-exit-btn');
   if (exitBtn) exitBtn.onclick = () => toggleRoamMode(false);
   const actionBtn = document.getElementById('roam-action-btn');

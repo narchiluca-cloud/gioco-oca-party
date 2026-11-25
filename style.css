@@ -1789,6 +1789,97 @@ select:focus-visible {
   bottom: calc(294px + env(safe-area-inset-bottom));
 }
 
+/* PULSANTE FLOTTANTE "PERSONAGGIO" — mouse o dito, sempre raggiungibile. */
+.character-fab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  position: fixed;
+  left: 14px;
+  bottom: calc(150px + env(safe-area-inset-bottom));
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #7a55a0 0%, #3a2148 68%, #1d1029 100%);
+  border: 2px solid var(--gold-bright);
+  color: #fff;
+  z-index: 56;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 16px rgba(217, 184, 255, 0.3);
+  animation: charFabPulse 2.8s ease-in-out infinite;
+  transition: transform 0.15s ease;
+  touch-action: manipulation;
+}
+.character-fab-icon { font-size: 1.4rem; line-height: 1; }
+.character-fab-label { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.02em; }
+.character-fab:active { transform: scale(0.92); }
+@keyframes charFabPulse {
+  0%, 100% { box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 14px rgba(217,184,255,0.28); }
+  50% { box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 24px rgba(217,184,255,0.55); }
+}
+/* In esplorazione il joystick prende il posto del pulsante. */
+.roam-active .character-fab { display: none; }
+
+@media (min-width: 861px) {
+  .character-fab {
+    left: 24px;
+    bottom: 220px;
+    width: 72px;
+    height: 72px;
+  }
+  .character-fab-icon { font-size: 1.6rem; }
+  .character-fab-label { font-size: 0.56rem; }
+}
+
+/* ==========================================================================
+   MICRO-INTERAZIONI — easing moderno per menu, modali e pulsanti
+   ========================================================================== */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-scrim { transition: opacity 0.38s var(--ease-smooth) !important; }
+.modal-parchment-box {
+  transition: transform 0.42s var(--ease-spring), opacity 0.3s var(--ease-smooth) !important;
+}
+.welcome-screen {
+  transition: opacity 0.5s var(--ease-smooth), transform 0.6s var(--ease-out-expo), visibility 0.5s !important;
+}
+.welcome-parchment-box { animation: welcomePop 0.48s var(--ease-spring) !important; }
+.admin-sheet-panel, .mobile-drawer-panel {
+  transition: transform 0.4s var(--ease-out-expo) !important;
+}
+
+.btn-roll-dice, .chaos-btn, .icon-btn, .cam-btn,
+.admin-sheet-btn, .roam-exit-btn, .admin-pill-btn {
+  transition:
+    transform 0.18s var(--ease-spring),
+    box-shadow 0.28s var(--ease-smooth),
+    filter 0.2s var(--ease-smooth),
+    background 0.25s var(--ease-smooth) !important;
+}
+.character-fab, .admin-fab-mobile, .roam-action-btn {
+  transition: transform 0.18s var(--ease-spring), box-shadow 0.3s var(--ease-smooth) !important;
+}
+.tavern-toast {
+  transition: opacity 0.28s var(--ease-smooth), transform 0.35s var(--ease-spring) !important;
+}
+
+/* Prompt di prossimità:alone pulsante quando un punto è raggiungibile. */
+.roam-prompt.near {
+  border-color: var(--gold-bright);
+  animation: promptGlow 1.4s ease-in-out infinite;
+}
+@keyframes promptGlow {
+  0%, 100% { box-shadow: 0 8px 22px rgba(0,0,0,0.65), 0 0 10px rgba(255,217,102,0.25); }
+  50% { box-shadow: 0 8px 22px rgba(0,0,0,0.65), 0 0 26px rgba(255,217,102,0.65); }
+}
+
 /* Rispetto delle preferenze di movimento ridotto. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
